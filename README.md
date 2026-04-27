@@ -1,6 +1,6 @@
-# MCP Network Access Suite
+# MCP Network Access
 
-A collection of Model Context Protocol (MCP) servers for telecommunication network management. Built with [FastMCP](https://gofastmcp.com).
+Collection of Model Context Protocol (MCP) servers for telecommunication network management. Built with [FastMCP](https://gofastmcp.com).
 
 ## Architecture
 
