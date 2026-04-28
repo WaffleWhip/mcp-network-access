@@ -1,15 +1,16 @@
 # GenieACS MCP
 
-TR-069 interface for remote ONT management.
+TR-069 interface for remote ONT management through GenieACS server.
 
 ## Tools
 
-- `ont_list`: List all informed ONTs.
-- `ont_params`: Dump full TR-069 parameter tree.
-- `ont_custom`: GET/SET specific parameters (e.g., SSID).
-- `ont_tasks`: Monitor command queue.
-- `ont_faults`: View protocol errors.
-- `ont_reboot`: Remote power cycle.
+- `ont_list()`: List all ONTs that have informed the GenieACS server.
+- `ont_params(sn_or_id)`: Dump full TR-069 parameter tree for a device.
+- `ont_custom(sn_or_id, path, value, refresh)`: GET or SET specific TR-069 parameter (SSID, WiFi settings, etc).
+- `ont_tasks(sn_or_id)`: Monitor live command queue (pending/processing tasks).
+- `ont_faults(sn_or_id)`: View TR-069 protocol errors and fault logs.
+- `ont_delete_task(task_id)`: Remove stuck task from command queue.
+- `ont_reboot(sn_or_id)`: Remote power cycle (reboot) ONT device.
 
 ## Setup
 
