@@ -15,6 +15,6 @@ Central inventory and knowledge base for network operations.
 
 ```bash
 cd databases
-./install/deploy.sh
-./install/systemd.sh
+bash install/build.sh
+bash install/systemd.sh
 ```

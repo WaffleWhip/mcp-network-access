@@ -15,6 +15,6 @@ TR-069 interface for remote ONT management.
 
 ```bash
 cd genieacs
-./install/deploy.sh
-./install/systemd.sh
+bash install/build.sh
+bash install/systemd.sh
 ```

@@ -4,14 +4,13 @@ Collection of Model Context Protocol (MCP) servers for telecommunication network
 
 ## Architecture
 
-- **Databases MCP**: Centralized inventory for OLT credentials and SOP knowledge base.
-- **GenieACS MCP**: TR-069 interaction for ONT management (SSID, WiFi, Diagnostics).
-- **OLT MCP**: Direct CLI interaction with OLTs (Nokia, Huawei, ZTE, Fiberhome) via Telnet/SSH.
+- **telnet**: Direct CLI interaction with OLTs (Nokia, Huawei, ZTE, Fiberhome) via Telnet.
+- **genieacs**: TR-069 interaction for ONT management via GenieACS.
+- **databases**: Centralized inventory for OLT credentials, ONT data, and SOP knowledge base.
 
-## Getting Started
+## Installation
 
-Each service contains an `install/` directory with:
-- `deploy.sh`: Environment setup (venv, dependencies).
-- `systemd.sh`: Service automation.
-
-Refer to individual READMEs in each directory for tool documentation.
+Each MCP has an `install/` directory with:
+- `build.sh`: Install dependencies and setup environment.
+- `start.sh`: Start the MCP server (and full stack for genieacs).
+- `systemd.sh`: Install as systemd service for auto-restart.
