@@ -16,6 +16,7 @@ TR-069 interface for remote ONT management through GenieACS server.
 
 ```bash
 cd genieacs
-bash install/build.sh
-bash install/systemd.sh
+bash install/build.sh     # Install dependencies + GenieACS stack
+bash install/start.sh     # Start MCP server + all services (or manual test)
+bash install/systemd.sh   # Install as systemd service
 ```

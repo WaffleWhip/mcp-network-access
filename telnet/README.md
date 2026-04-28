@@ -12,6 +12,7 @@ CLI terminal interaction for Multi-Vendor OLTs via persistent Telnet sessions.
 
 ```bash
 cd telnet
-bash install/build.sh
-bash install/systemd.sh
+bash install/build.sh     # Install dependencies
+bash install/start.sh     # Start MCP server (or manual test)
+bash install/systemd.sh   # Install as systemd service
 ```
