@@ -1,12 +1,12 @@
 #!/bin/bash
-# databases/install/systemd.sh - Install service
+# telnet/install/systemd.sh - Install service
 set -e
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." >/dev/null 2>&1 && pwd )"
-SERVICE_NAME="mcp-databases"
+SERVICE_NAME="mcp-telnet"
 
 cat <<EOT | tee /etc/systemd/system/$SERVICE_NAME.service
 [Unit]
-Description=Database MCP Server
+Description=Telnet Driver MCP Server
 After=network.target
 
 [Service]
