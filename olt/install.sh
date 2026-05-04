@@ -27,7 +27,7 @@ if systemctl is-active --quiet $SERVICE_NAME; then
     echo "What would you like to do?"
     echo "1) Fresh Install (DELETE existing and install in $TARGET_DIR)"
     echo "2) Cancel"
-    read -p "Select an option [1-2]: " choice
+    read -p "Select an option [1-2]: " choice < /dev/tty
 
     case $choice in
         1)
