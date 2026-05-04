@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+env/
+venv/
+ENV/
+
+# Local Storage (Inventory & Knowledge)
+storage/*.db
+storage/*.db-wal
+storage/*.db-shm
+
+# OS files
+.DS_Store
+Thumbs.db

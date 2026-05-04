@@ -1,49 +1,11 @@
-"""Network Master Database - Flat Architecture"""
+"""Network Master Database - ONT Logic Only"""
 from fastmcp import FastMCP, Context
 from typing import Optional, Any
 
-from src.olt import list_olts, save_olt, delete_olt, list_cmds, save_cmd
 from src.ont import list_batches, get_summary, get_clusters, get_details, get_status
 from src.skills import list_skills, read_skill
 
-mcp = FastMCP("Network-Master-Database")
-
-@mcp.tool()
-def db_olt_list(ctx: Context) -> Any:
-    """List all registered OLTs in the infrastructure database.
-    Example: db_olt_list()
-    """
-    return list_olts()
-
-@mcp.tool()
-def db_olt_save(ctx: Context, name: str, host: str, user: str, password: str,
-                vendor: str, model: Optional[str] = None) -> Any:
-    """Create or update an OLT credential in the database.
-    Example: db_olt_save(name="Nokia-SN", host="10.14.35.115", user="isadmin", password="secret", vendor="Nokia")
-    """
-    return save_olt(name, host, user, password, vendor, model)
-
-@mcp.tool()
-def db_olt_delete(ctx: Context, name: str) -> Any:
-    """Remove an OLT from the infrastructure database.
-    Example: db_olt_delete(name="Nokia-SN")
-    """
-    return delete_olt(name)
-
-@mcp.tool()
-def db_olt_cmds_list(ctx: Context, vendor: Optional[str] = None, model: Optional[str] = None) -> Any:
-    """Search CLI commands in the knowledge base by vendor/model.
-    Example: db_olt_cmds_list(vendor="Huawei")
-    """
-    return list_cmds(vendor, model)
-
-@mcp.tool()
-def db_olt_cmds_save(ctx: Context, vendor: str, model: str, command_syntax: str,
-                      execution_mode: str, description: str) -> Any:
-    """Save a newly discovered CLI command to the knowledge base.
-    Example: db_olt_cmds_save(vendor="Huawei", model="MA5800", command_syntax="display ont info", execution_mode="exec", description="Show ONT information")
-    """
-    return save_cmd(vendor, model, command_syntax, execution_mode, description)
+mcp = FastMCP("Network-Database")
 
 @mcp.tool()
 def db_ont_list(ctx: Context) -> Any:
