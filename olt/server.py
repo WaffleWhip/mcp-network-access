@@ -109,10 +109,14 @@ def command(
 async def telnet(
     host: str, port: int = 23, length: int = 20, force: bool = False
 ) -> Any:
-    """Open connection and set terminal view settings.
+    """Open telnet connection to OLT.
 
-    - length: Number of lines to show (default 20).
-    - force: Close existing session and start fresh (default False).
+    IMPORTANT: Session persists between calls. Use force=True ONLY if stuck or
+    need fresh connection. Check is_logged_in status first.
+
+    - length: Number of terminal lines to return (default 20, max 100).
+    - force: Force close existing session and start fresh (default False).
+             USE WHEN: previous session stuck, login failed, or OLT not responding.
     """
     if not hasattr(mcp, "_heartbeat_started"):
         asyncio.create_task(_heartbeat())
@@ -131,11 +135,28 @@ async def telnet(
 
 @mcp.tool()
 async def telnet_send(host: str, type: str, value: str) -> Any:
-    """Send command or button to terminal.
+    """Send command or button to OLT terminal.
+
+    IMPORTANT: Session must exist first. If "NOT_CONNECTED", call telnet() first.
+
+    LOGIN FLOW for each vendor:
+    - ZTE: username -> password (wait for prompt after each)
+    - HUAWEI: username -> password
+    - FIBERHOME: Login: -> Password: (use 'admin'/'admin' or check inventory)
+    - NOKIA: username -> password
+
+    TROUBLESHOOTING:
+    - If stuck at username prompt after login: OLT device-side session active.
+      Use telnet(host, force=True) to force fresh connection.
+    - If "Login failed" or "locked": Too many failed attempts. Wait 5-10 min
+      or use telnet(host, force=True) to get fresh session.
 
     - BATCHING: Separate multiple commands with ", ".
-    - PAGINATION: Include buttons in batch for multi-page output (e.g., "show card, [SPACE]").
-    - TYPE: 'command' for text, 'button' for 'space', 'enter', 'q'.
+      Example: "enable, show running, quit"
+    - PAGINATION: Include [SPACE] after commands that paginate.
+      Example: "show card, [SPACE], q"
+    - TYPE: 'command' for text input, 'button' for special keys.
+      Buttons: 'enter', 'space', 'q' (quit)
     """
 
     try:
