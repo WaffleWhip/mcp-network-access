@@ -93,9 +93,10 @@ def command(
         if action == "list":
             return list_knowledge(host)
         elif action == "save":
-            if not syntax or not path:
-                return "Error: syntax and path required"
-            return edit_knowledge("save", host, syntax, path.split(", "), description)
+            if not syntax:
+                return "Error: syntax required"
+            path_list = path.split(", ") if path else []
+            return edit_knowledge("save", host, syntax, path_list, description)
         elif action == "delete":
             if not syntax:
                 return "Error: syntax required"
