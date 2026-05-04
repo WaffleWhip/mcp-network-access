@@ -1,15 +1,15 @@
 #!/bin/bash
-# olt/install.sh - Interactive OLT MCP Installer
+# olt/install.sh - Flexible OLT MCP Installer
 set -e
 
 # Configuration
 REPO_URL="https://github.com/WaffleWhip/mcp-network-access.git"
-TARGET_DIR="/root/poc/olt"
+TARGET_DIR=$(pwd)
 SERVICE_NAME="mcp-olt"
 PORT=8002
 
 echo "=========================================="
-echo "   OLT Manager MCP Setup & Deployment"
+echo "   OLT MCP Setup & Deployment"
 echo "=========================================="
 
 # 1. Root Check
@@ -18,33 +18,22 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 2. Existing Installation Check
-if [ -d "$TARGET_DIR" ] || systemctl is-active --quiet $SERVICE_NAME; then
-    echo "⚠️  WARNING: OLT MCP is already installed or running."
-    echo "Current Location: $TARGET_DIR"
+# 2. Existing Installation Check (Interactive)
+if systemctl is-active --quiet $SERVICE_NAME; then
+    CURRENT_WD=$(systemctl cat $SERVICE_NAME | grep WorkingDirectory | cut -d'=' -f2)
+    echo "⚠️  WARNING: OLT MCP service is already running."
+    echo "Current Location: $CURRENT_WD"
     echo ""
     echo "What would you like to do?"
-    echo "1) Fresh Install (DELETE everything and start over)"
+    echo "1) Fresh Install (DELETE existing and install in $TARGET_DIR)"
     echo "2) Cancel"
     read -p "Select an option [1-2]: " choice
 
     case $choice in
         1)
-            echo "--- Removing existing installation... ---"
-            # Safety: Check if we are running the script from the directory we are about to delete
-            CURRENT_SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-            if [[ "$CURRENT_SCRIPT_DIR" == "$TARGET_DIR"* ]]; then
-                echo "⚠️  ERROR: Cannot perform Fresh Install while running script from inside $TARGET_DIR."
-                echo "Please copy this script to /tmp and run it from there."
-                echo "Example: cp install.sh /tmp/ && bash /tmp/install.sh"
-                exit 1
-            fi
+            echo "--- Stopping existing service... ---"
             systemctl stop $SERVICE_NAME 2>/dev/null || true
             systemctl disable $SERVICE_NAME 2>/dev/null || true
-            rm -f /etc/systemd/system/$SERVICE_NAME.service
-            systemctl daemon-reload
-            rm -rf "$TARGET_DIR"
-            echo "✓ Cleanup complete."
             ;;
         *)
             echo "Installation cancelled."
@@ -53,27 +42,21 @@ if [ -d "$TARGET_DIR" ] || systemctl is-active --quiet $SERVICE_NAME; then
     esac
 fi
 
-# 3. Directory & Source Logic
-mkdir -p "$TARGET_DIR"
-if [ ! -f "$TARGET_DIR/server.py" ]; then
-    echo "--- Fetching source ---"
-    if [ -f "server.py" ]; then
-        cp -r . "$TARGET_DIR/"
+# 3. Source Logic
+if [ ! -f "server.py" ]; then
+    echo "--- Fetching source from GitHub ---"
+    apt-get update -qq && apt-get install -y -qq git curl
+    TEMP_DIR=$(mktemp -d)
+    git clone --quiet $REPO_URL "$TEMP_DIR"
+    if [ -d "$TEMP_DIR/olt" ]; then
+        cp -r "$TEMP_DIR/olt/." "$TARGET_DIR/"
+        rm -rf "$TEMP_DIR"
     else
-        apt-get update -qq && apt-get install -y -qq git curl
-        cd /tmp
-        rm -rf mcp-network-access
-        git clone --quiet $REPO_URL
-        if [ -d "mcp-network-access/olt" ]; then
-            cp -r mcp-network-access/olt/. "$TARGET_DIR/"
-        else
-            echo "Error: 'olt' directory not found in repository."
-            exit 1
-        fi
+        echo "Error: 'olt' directory not found in repository."
+        rm -rf "$TEMP_DIR"
+        exit 1
     fi
 fi
-
-cd "$TARGET_DIR"
 
 # 4. Environment Setup (Venv)
 if [ ! -d ".venv" ]; then
@@ -98,7 +81,7 @@ fi
 echo "--- Installing systemd service ---"
 cat <<EOT | tee /etc/systemd/system/$SERVICE_NAME.service > /dev/null
 [Unit]
-Description=OLT Manager MCP Server
+Description=OLT MCP Server
 After=network.target
 
 [Service]
@@ -121,8 +104,9 @@ systemctl restart $SERVICE_NAME
 echo "--- Verifying Service ---"
 sleep 5
 if systemctl is-active --quiet $SERVICE_NAME; then
-    echo "✅ Success: $SERVICE_NAME is running on port $PORT."
+    echo "✅ Success: OLT MCP is running on port $PORT."
+    echo "Location: $TARGET_DIR"
 else
-    echo "❌ Error: $SERVICE_NAME failed to start."
+    echo "❌ Error: OLT MCP failed to start."
     exit 1
 fi

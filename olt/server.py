@@ -1,6 +1,6 @@
-"""OLT Manager - Terminal Driver & Knowledge Base"""
+"""OLT MCP - Terminal Driver & Knowledge Base"""
 from fastmcp import FastMCP
-from typing import Optional, Any
+from typing import Optional, List, Any
 import asyncio
 
 from src.telnet import (
@@ -9,41 +9,52 @@ from src.telnet import (
 )
 from src.database import list_inventory, list_knowledge, edit_inventory, edit_knowledge
 
-mcp = FastMCP("OLT-Manager")
+mcp = FastMCP("OLT-MCP")
 
 def wrap_result(host: str, note: Optional[str] = None) -> str:
-    """Returns raw terminal state based on preferred line length."""
+    """Returns raw terminal state."""
     terminal_text = get_last_buffer(host)
     if note:
         return f"{terminal_text}\n\n---\nNOTE: {note}"
     return terminal_text
 
 @mcp.tool()
-def list(host: Optional[str] = None, detail: bool = False) -> Any:
-    """List OLTs from inventory.
+def inventory(action: str = "list", host: Optional[str] = None, 
+              data: Optional[dict] = None, detail: bool = False) -> Any:
+    """Manage OLT inventory (credentials and IPs).
     
-    - list(): returns name, host, vendor, model.
-    - list(host="10.x.x.x", detail=True): returns user + password for one OLT.
+    - action="list": returns name, host, vendor, model.
+    - action="list" + detail=True: returns user + password (requires host).
+    - action="save" + data={name, host, user, password, vendor, model}: Add/Update OLT.
+    - action="delete" + host: Remove OLT.
     """
     try:
-        result = list_inventory(host)
-        if detail and not host:
-            return "Error: host required for detail view"
-        if not detail:
-            for item in result:
-                item.pop('user', None)
-                item.pop('password', None)
-        return result
+        if action == "list":
+            result = list_inventory(host)
+            if detail and not host:
+                return "Error: detail=True requires host parameter"
+            if not detail:
+                for item in result:
+                    item.pop('user', None)
+                    item.pop('password', None)
+            return result
+        elif action == "save":
+            if not data: return "Error: data dict required for save"
+            return edit_inventory("save", data)
+        elif action == "delete":
+            if not host: return "Error: host required for delete"
+            return edit_inventory("delete", {"name": host}) # Logic uses name or host
+        return "Error: invalid action"
     except Exception as e: return str(e)
 
 @mcp.tool()
 def command(action: str, host: str, syntax: Optional[str] = None,
              path: Optional[str] = None, description: str = "") -> Any:
-    """Manage OLT command sequences. 
-    NOTE: 'path' should contain steps executed AFTER login.
+    """Manage OLT command shortcuts (post-login sequences).
     
     - action="list": See sequences for this host.
-    - action="save": syntax="show version", path="config, show version"
+    - action="save": Store working path (e.g. syntax="show version", path="config, show version").
+    - action="delete": Remove sequence by syntax.
     """
     try:
         if action == "list":
@@ -62,8 +73,7 @@ def command(action: str, host: str, syntax: Optional[str] = None,
 async def telnet(host: str, port: int = 23, length: int = 20) -> Any:
     """Open connection and set terminal view settings.
     
-    - length: How many lines of output to show (default 20).
-    Returns current screen state.
+    - length: Number of lines to show (default 20).
     """
     if not hasattr(mcp, "_heartbeat_started"):
         asyncio.create_task(_heartbeat())
@@ -80,12 +90,13 @@ async def telnet(host: str, port: int = 23, length: int = 20) -> Any:
 async def telnet_send(host: str, type: str, value: str) -> Any:
     """Send command or button to terminal.
     
-    - BATCHING: Separate multiple commands with ", ".
+    - BATCHING: Separate multiple commands with ", " for faster execution.
     - TYPE: 'command' for text, 'button' for 'space', 'enter', 'q'.
     """
     try:
         if not is_logged_in(host):
-            return "Error: NOT_CONNECTED. Call telnet first."
+            await vt_connect(host)
+            await asyncio.sleep(0.2)
 
         if type == "button":
             btn_map = {"space": " ", "enter": "\n", "q": "q"}
@@ -93,7 +104,6 @@ async def telnet_send(host: str, type: str, value: str) -> Any:
             await send_command(host, commands=[btn])
             return wrap_result(host)
         else:
-            # Execute command(s)
             if "," in value:
                 cmds = [c.strip() for c in value.split(",") if c.strip()]
                 await send_command(host, commands=cmds)
@@ -102,29 +112,24 @@ async def telnet_send(host: str, type: str, value: str) -> Any:
                 await send_command(host, command=value)
                 target_cmd = value
 
-            # AI-DECISION KNOWLEDGE CHECK (No hardcoded error patterns)
             knowledge = list_knowledge(host)
             known_syntaxes = [k['syntax'].lower() for k in knowledge]
-            
-            # Check prompt state
             buffer = get_last_buffer(host)
             last_line = buffer.strip().split('\n')[-1]
             is_operational = any(p in last_line for p in ["#", ">"])
 
-            # Credential check
-            inventory = list_inventory(host)
+            inventory_data = list_inventory(host)
             creds = []
-            if inventory:
-                olt = inventory[0]
+            if inventory_data:
+                olt = inventory_data[0]
                 creds = [str(olt.get('user','')).lower(), str(olt.get('password','')).lower()]
             
             is_cred = target_cmd.lower() in creds
             is_discovery = target_cmd.strip() in ["?", ""]
 
             note = None
-            # Only suggest save if post-login and not already known
             if is_operational and target_cmd.lower() not in known_syntaxes and not is_cred and not is_discovery:
-                note = f"New command '{target_cmd}' discovered. You decide: if this worked, save it using the 'command' tool."
+                note = f"New command '{target_cmd}' discovered. Save it using the 'command' tool if it worked."
             
             return wrap_result(host, note=note)
 

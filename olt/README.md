@@ -1,10 +1,8 @@
-# OLT Manager MCP
+# OLT MCP (Telnet)
 
-Multi-vendor OLT terminal interaction via persistent, reactive Telnet sessions. Designed for high-speed AI agent autonomy and human-like interaction.
+Multi-vendor OLT terminal interaction via persistent Telnet sessions.
 
 ## Quick Install
-
-Run this one-line command on your server:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/WaffleWhip/mcp-network-access/main/olt/install.sh | bash
@@ -14,65 +12,50 @@ curl -sSL https://raw.githubusercontent.com/WaffleWhip/mcp-network-access/main/o
 
 | Tool | Mode | Description |
 |------|------|-------------|
-| `list` | View | Browse OLT inventory and retrieve credentials. |
-| `telnet` | View | Initialize session and observe terminal state with dynamic length. |
-| `telnet_send` | Action | Send commands or buttons (Batching supported). |
-| `command` | Knowledge | Save and reuse discovered post-login command sequences. |
+| `inventory` | View/Edit | Manage OLT credentials and IPs (list, save, delete). |
+| `telnet` | View | Open session and observe terminal state with dynamic length. |
+| `telnet_send` | Action | Send commands or buttons (Batching supported with ", "). |
+| `command` | Knowledge | Manage reusable post-login command sequences. |
 
 ## Usage Examples
 
-### 1. Discovery & Login
+### 1. Inventory & Login
 ```bash
-# Browse OLTs
-list() 
+# List all OLTs (Brief)
+inventory(action="list")
 
 # Get credentials for specific OLT
-list(host="10.x.x.x", detail=True)
+inventory(action="list", host="10.x.x.x", detail=True)
 
-# Open session (default view 20 lines)
-telnet(host="10.x.x.x")
-
-# High-speed Batch Login
-telnet_send(host="10.x.x.x", type="command", value="admin, password")
+# Save/Update OLT
+inventory(action="save", data={"name": "OLT-1", "host": "10.x.x.x", "user": "admin", "password": "pass", "vendor": "zte", "model": "C600"})
 ```
 
-### 2. Operations & Navigation
+### 2. Operations
 ```bash
-# Send command and see 50 lines of output
+# Open session
 telnet(host="10.x.x.x", length=50)
-telnet_send(host="10.x.x.x", type="command", value="show card")
 
-# Handle pagination (--More--)
-telnet_send(host="10.x.x.x", type="button", value="space")
+# Batch execution
+telnet_send(host="10.x.x.x", type="command", value="admin, password, show card")
 
-# Interactive Help
-telnet_send(host="10.x.x.x", type="command", value="?")
+# Handle pagination
+telnet_send(host="10.14.35.111", type="button", value="space")
 ```
 
-### 3. Knowledge Management (Automation Paths)
-Save working post-login sequences including complex navigation and button presses.
-
+### 3. Knowledge Management
 ```bash
-# Save complex path: Enter config -> Run Command -> Confirm -> Page Down -> Exit
+# Save post-login sequence
 command(
     action="save", 
     host="10.x.x.x", 
     syntax="show full config", 
-    path="configure terminal, show running-config, [ENTER], [SPACE], [SPACE], exit", 
-    description="Full config dump with pagination handling"
+    path="configure terminal, show running-config, [ENTER], [SPACE], exit", 
+    description="Config dump"
 )
-
-# List saved shortcuts
-command(action="list", host="10.x.x.x")
 ```
 
-## Features
-
-- **Reactive Driver:** No fixed wait times; reacts instantly to OLT prompt events.
-- **Human-Like Output:** Pure raw terminal text normalization (renders correctly in CLI).
-- **Auto-Connect:** `telnet_send` automatically restores dead sessions.
-- **Silent Auth:** Credentials sent via batch do not trigger "New Command" notes.
-- **SQLite WAL Mode:** Optimized for concurrent access by multiple agents.
-
 ---
-*Note: This system relies on AI agents to interpret terminal states from raw text output.*
+Note: This system relies on AI agents to interpret terminal states from raw text output.
+
+[Back to main README](../README.md)
