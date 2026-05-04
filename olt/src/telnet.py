@@ -94,8 +94,8 @@ async def send_command(host, command=None, commands=None):
     out = ""
     items = commands if commands else ([command] if command else [])
     btn_map = {
-        "[SPACE]": " ",
         "[ENTER]": "\n",
+        "[SPACE]": " ",
         "[Q]": "q",
         "[QUIT]": "q",
         "[ESC]": "\x1b",
@@ -103,10 +103,17 @@ async def send_command(host, command=None, commands=None):
     }
 
     for item in items:
-        if str(item).upper() in btn_map:
-            char = btn_map[str(item).upper()]
+        # Auto-detect button: starts with [ and ends with ]
+        stripped = str(item).strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            key = stripped.upper()
+            if key in btn_map:
+                char = btn_map[key]
+            else:
+                char = f"{stripped[1:-1]}\n"  # Remove brackets, treat as command
         else:
-            char = f"{item}\n"
+            char = f"{stripped}\n"
+
         w.write(char)
         await w.drain()
         res = await _read_until_silence(host, timeout=20.0)

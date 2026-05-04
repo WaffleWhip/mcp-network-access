@@ -131,29 +131,22 @@ async def telnet(host: str, port: int = 23, length: int = 20, new: bool = False)
 
 
 @mcp.tool()
-async def telnet_send(host: str, type: str, value: str) -> Any:
-    """Send command or button to OLT terminal.
+async def telnet_send(host: str, value: str) -> Any:
+    """Send command(s) to OLT terminal.
 
     IMPORTANT: Session must exist first. If "NOT_CONNECTED", call telnet() first.
 
-    LOGIN FLOW for each vendor:
-    - ZTE: username -> password (wait for prompt after each)
-    - HUAWEI: username -> password
-    - FIBERHOME: Login: -> Password: (use 'admin'/'admin' or check inventory)
-    - NOKIA: username -> password
+    AUTO-DETECT: Commands and buttons are automatically detected.
+    - Button format: [KEY] e.g. [ENTER], [SPACE], [Q], [TAB]
+    - Command format: plain text
 
-    TROUBLESHOOTING:
-    - If stuck at username prompt after login: OLT device-side session active.
-      Use telnet(host, new=True) to start fresh connection.
-    - If "Login failed" or "locked": Too many failed attempts. Wait 5-10 min
-      or use telnet(host, new=True) to get fresh session.
+    BATCHING: Separate with ", ".
+    Example: "huawei, huawei123, display version,[ENTER],[Q]"
 
-    - BATCHING: Separate multiple commands with ", ".
-      Example: "enable, show running, quit"
-    - PAGINATION: Include [SPACE] after commands that paginate.
-      Example: "show card, [SPACE], q"
-    - TYPE: 'command' for text input, 'button' for special keys.
-      Buttons: 'enter', 'space', 'q' (quit)
+    BUTTONS: [ENTER], [SPACE], [Q], [QUIT], [TAB], [ESC]
+    - [ENTER] = newline
+    - [SPACE] = space
+    - [Q] = quit pagination
     """
 
     try:
@@ -161,20 +154,14 @@ async def telnet_send(host: str, type: str, value: str) -> Any:
             await vt_connect(host)
             await asyncio.sleep(0.2)
 
-        if type == "button":
-            btn_map = {"space": " ", "enter": "\n", "q": "q"}
-            btn = btn_map.get(value.lower(), "\n")
-            await send_command(host, commands=[btn])
-            return wrap_result(host)
+        result = ""
+        if "," in value:
+            cmds = [c.strip() for c in value.split(",") if c.strip()]
+            result, _ = await send_command(host, commands=cmds)
+            target_cmd = cmds[-1]
         else:
-            result = ""
-            if "," in value:
-                cmds = [c.strip() for c in value.split(",") if c.strip()]
-                result, _ = await send_command(host, commands=cmds)
-                target_cmd = cmds[-1]
-            else:
-                result, _ = await send_command(host, command=value)
-                target_cmd = value
+            result, _ = await send_command(host, command=value)
+            target_cmd = value
 
             knowledge = list_knowledge(host)
             known_syntaxes = [k["syntax"].lower() for k in knowledge]
