@@ -12,50 +12,20 @@ curl -sSL https://raw.githubusercontent.com/WaffleWhip/mcp-network-access/main/o
 
 | Tool | Mode | Description |
 |------|------|-------------|
-| `inventory` | View/Edit | Manage OLT credentials and IPs (list, save, delete). |
-| `telnet` | View | Open session and observe terminal state with dynamic length. |
-| `telnet_send` | Action | Send commands or buttons (Batching supported with ", "). |
-| `command` | Knowledge | Manage reusable post-login command sequences. |
+| `inventory` | View/Edit | Manage OLT credentials and IPs. |
+| `telnet` | View | Open session and observe terminal state. |
+| `telnet_send` | Action | Send commands or buttons manually. |
+| `command` | Knowledge | Knowledge base of operational hints and recipes. |
 
-## Usage Examples
+## Knowledge Base (Hints)
 
-### 1. Inventory & Login
-```bash
-# List all OLTs (Brief)
-inventory(action="list")
+This system uses a **Knowledge-First** approach. Before executing a command, the agent checks for a "Hint" (a recipe of proven steps).
 
-# Get credentials for specific OLT
-inventory(action="list", host="10.x.x.x", detail=True)
-
-# Save/Update OLT
-inventory(action="save", data={"name": "OLT-1", "host": "10.x.x.x", "user": "admin", "password": "pass", "vendor": "zte", "model": "C600"})
-```
-
-### 2. Operations
-```bash
-# Open session
-telnet(host="10.x.x.x", length=50)
-
-# Batch execution
-telnet_send(host="10.x.x.x", type="command", value="admin, password, show card")
-
-# Handle pagination
-telnet_send(host="10.14.35.111", type="button", value="space")
-```
-
-### 3. Knowledge Management
-```bash
-# Save post-login sequence
-command(
-    action="save", 
-    host="10.x.x.x", 
-    syntax="show full config", 
-    path="configure terminal, show running-config, [ENTER], [SPACE], exit", 
-    description="Config dump"
-)
-```
+1. **Check Hint:** `command(action="list", host="10.x.x.x")`
+2. **Execute Manually:** If a hint like `config, show version` exists, the agent must type those steps manually via `telnet_send`.
+3. **Contribute:** If the agent discovers a new working sequence, it saves it as a Hint for others.
 
 ---
-Note: This system relies on AI agents to interpret terminal states from raw text output.
+Note: This system relies on AI agents to interpret terminal states and execute steps manually.
 
 [Back to main README](../README.md)

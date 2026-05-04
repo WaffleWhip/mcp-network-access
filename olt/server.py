@@ -50,11 +50,16 @@ def inventory(action: str = "list", host: Optional[str] = None,
 @mcp.tool()
 def command(action: str, host: str, syntax: Optional[str] = None,
              path: Optional[str] = None, description: str = "") -> Any:
-    """Manage OLT command shortcuts (post-login sequences).
+    """Knowledge Base of operational hints and recipes.
     
-    - action="list": See sequences for this host.
-    - action="save": Store working path (e.g. syntax="show version", path="config, show version").
-    - action="delete": Remove sequence by syntax.
+    AI GUIDELINE: Always check for hints before discovering new commands.
+    If a hint exists, YOU must execute the steps manually via telnet_send.
+    
+    - action="list": Get hints/recipes for this host.
+    - action="save": Store a verified hint (e.g. syntax="show version", path="config, show version").
+    - action="delete": Remove a hint.
+    
+    NOTE: If output needs pagination, include buttons in your manual execution.
     """
     try:
         if action == "list":
@@ -89,10 +94,12 @@ async def telnet(host: str, port: int = 23, length: int = 20) -> Any:
 @mcp.tool()
 async def telnet_send(host: str, type: str, value: str) -> Any:
     """Send command or button to terminal.
-    
-    - BATCHING: Separate multiple commands with ", " for faster execution.
+
+    - BATCHING: Separate multiple commands with ", ".
+    - PAGINATION: Include buttons in batch for multi-page output (e.g., "show card, [SPACE]").
     - TYPE: 'command' for text, 'button' for 'space', 'enter', 'q'.
     """
+
     try:
         if not is_logged_in(host):
             await vt_connect(host)
