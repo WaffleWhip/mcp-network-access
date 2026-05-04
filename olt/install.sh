@@ -1,5 +1,5 @@
 #!/bin/bash
-# olt/install.sh - Flexible OLT MCP Installer
+# olt/install.sh - OLT MCP Installer
 set -e
 
 # Configuration
@@ -18,10 +18,10 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 2. Existing Installation Check (Interactive)
+# 2. Existing Installation Check
 if systemctl is-active --quiet $SERVICE_NAME; then
     CURRENT_WD=$(systemctl cat $SERVICE_NAME | grep WorkingDirectory | cut -d'=' -f2)
-    echo "⚠️  WARNING: OLT MCP service is already running."
+    echo "WARNING: OLT MCP service is already running."
     echo "Current Location: $CURRENT_WD"
     echo ""
     echo "What would you like to do?"
@@ -31,7 +31,7 @@ if systemctl is-active --quiet $SERVICE_NAME; then
 
     case $choice in
         1)
-            echo "--- Stopping existing service... ---"
+            echo "--- Stopping existing service ---"
             systemctl stop $SERVICE_NAME 2>/dev/null || true
             systemctl disable $SERVICE_NAME 2>/dev/null || true
             ;;
@@ -67,7 +67,7 @@ if [ ! -d ".venv" ]; then
     fi
     uv venv .venv
     source .venv/bin/activate
-    uv pip install fastmcp telnetlib3
+    uv pip install --quiet fastmcp telnetlib3
 fi
 
 # 5. Port Cleanup
@@ -104,9 +104,9 @@ systemctl restart $SERVICE_NAME
 echo "--- Verifying Service ---"
 sleep 5
 if systemctl is-active --quiet $SERVICE_NAME; then
-    echo "✅ Success: OLT MCP is running on port $PORT."
+    echo "Success: OLT MCP is running on port $PORT."
     echo "Location: $TARGET_DIR"
 else
-    echo "❌ Error: OLT MCP failed to start."
+    echo "Error: OLT MCP failed to start."
     exit 1
 fi

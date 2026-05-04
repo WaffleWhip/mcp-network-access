@@ -1,6 +1,6 @@
-# MCP for OLT and ONT (GenieACS) Management
+# MCP for OLT and ONT Management
 
-Collection of Model Context Protocol (MCP) servers for telecommunication network management. Built with [FastMCP](https://gofastmcp.com).
+Collection of Model Context Protocol (MCP) servers for telecommunication network management.
 
 ## Architecture
 
@@ -8,9 +8,9 @@ Collection of Model Context Protocol (MCP) servers for telecommunication network
 - [8002: OLT MCP (Telnet)](./olt/README.md) - Direct CLI interaction with OLTs.
 
 ### Archive
-- [8003: Databases MCP](./databases/README.md) - Centralized inventory and SOP knowledge base (Archived/Legacy).
+- [8003: Databases MCP (Archived)](./databases/README.md) - Centralized inventory and SOP knowledge base.
 
-## Installation
+## One-Line Installation
 
 ### GenieACS MCP (Port 8001)
 ```bash
