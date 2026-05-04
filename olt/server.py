@@ -43,7 +43,12 @@ def inventory(action: str = "list", host: Optional[str] = None,
             return edit_inventory("save", data)
         elif action == "delete":
             if not host: return "Error: host required for delete"
-            return edit_inventory("delete", {"name": host}) # Logic uses name or host
+            from src.config import INFRA_DB
+            conn = __import__('sqlite3').connect(INFRA_DB)
+            conn.execute("DELETE FROM olt_credentials WHERE host = ?", (host,))
+            conn.commit()
+            conn.close()
+            return f"Success: Inventory '{host}' deleted"
         return "Error: invalid action"
     except Exception as e: return str(e)
 

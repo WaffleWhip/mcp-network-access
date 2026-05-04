@@ -134,25 +134,66 @@ mkdir -p genieacs/logs genieacs/data/db
 
 # 6. Port Cleanup
 echo "--- Cleaning up port $PORT ---"
-STALE_PIDS=$(lsof -t -i:$PORT || true)
-if [ -n "$STALE_PIDS" ]; then
-    kill -9 $STALE_PIDS || true
-fi
+STALE_PIDS=$(lsof -t -i:$PORT 2>/dev/null || true)
+[ -n "$STALE_PIDS" ] && kill -9 $STALE_PIDS 2>/dev/null || true
 
-# 7. Systemd Unit
+GENIEACS_PORTS="7547 7557 7567 3000"
+for p in $GENIEACS_PORTS; do
+    STALE=$(lsof -t -i:$p 2>/dev/null || true)
+    [ -n "$STALE" ] && kill -9 $STALE 2>/dev/null || true
+done
+
+# 7. Systemd Unit (inline startup, no external scripts)
+# Determine actual script dir at runtime using PID
+SCRIPT_DIR=$(cd /root/poc/genieacs && pwd)
+cat << EOT > /tmp/genieacs-start.sh
+#!/bin/bash
+WDIR="$SCRIPT_DIR"
+GENIEACS_DIR="\$WDIR/genieacs"
+export LD_LIBRARY_PATH="\$GENIEACS_DIR/bin/lib:\$LD_LIBRARY_PATH"
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$HOME/.bun/bin"
+
+# Start MongoDB
+[ -f "\$GENIEACS_DIR/bin/lib/mongod" ] && \$GENIEACS_DIR/bin/lib/mongod --dbpath \$GENIEACS_DIR/data/db --port 27017 --logpath \$GENIEACS_DIR/logs/mongo.log --fork --logappend || true
+/bin/sleep 3
+
+# Start Redis (skip if already running)
+if ! /usr/bin/redis-cli ping >/dev/null 2>&1; then
+    /usr/bin/redis-server --port 6379 --daemonize yes --logfile \$GENIEACS_DIR/logs/redis.log 2>/dev/null || true
+fi
+/bin/sleep 2
+
+# Start GenieACS Services
+cd "\$GENIEACS_DIR"
+. genieacs.env
+BUN_BIN="/root/.bun/bin/bun"
+nohup \$BUN_BIN x genieacs-cwmp > \$GENIEACS_DIR/logs/cwmp.log 2>&1 &
+nohup \$BUN_BIN x genieacs-nbi > \$GENIEACS_DIR/logs/nbi.log 2>&1 &
+nohup \$BUN_BIN x genieacs-fs > \$GENIEACS_DIR/logs/fs.log 2>&1 &
+nohup \$BUN_BIN x genieacs-ui > \$GENIEACS_DIR/logs/ui.log 2>&1 &
+/bin/sleep 10
+
+# Start MCP Server
+cd /root/poc/genieacs
+exec /root/poc/genieacs/.venv/bin/python server.py
+EOT
+chmod +x /tmp/genieacs-start.sh
+
 echo "--- Installing systemd service ---"
-cat <<EOT | tee /etc/systemd/system/$SERVICE_NAME.service > /dev/null
+cat <<EOT > /etc/systemd/system/$SERVICE_NAME.service
 [Unit]
 Description=GenieACS MCP Server
-After=network.target
+After=network.target redis-server.service
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=$TARGET_DIR
-ExecStart=/bin/bash $TARGET_DIR/start.sh
+ExecStart=/bin/bash /tmp/genieacs-start.sh
 Restart=always
 RestartSec=5
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$HOME/.bun/bin"
+Environment="HOME=root"
 
 [Install]
 WantedBy=multi-user.target
