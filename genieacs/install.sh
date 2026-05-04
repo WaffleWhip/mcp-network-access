@@ -61,7 +61,7 @@ fi
 # 4. Build Logic
 echo "--- Installing system dependencies ---"
 apt-get update -qq
-apt-get install -y -qq curl wget git gnupg ar xz-utils libssl-dev redis-server
+apt-get install -y -qq curl wget git gnupg binutils xz-utils libssl-dev redis-server
 
 # Fix libssl1.1 for Debian 13 (required by MongoDB)
 if ! dpkg -l | grep -q libssl1.1; then
