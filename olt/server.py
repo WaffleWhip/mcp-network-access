@@ -167,12 +167,13 @@ async def telnet_send(host: str, type: str, value: str) -> Any:
             await send_command(host, commands=[btn])
             return wrap_result(host)
         else:
+            result = ""
             if "," in value:
                 cmds = [c.strip() for c in value.split(",") if c.strip()]
-                await send_command(host, commands=cmds)
+                result, _ = await send_command(host, commands=cmds)
                 target_cmd = cmds[-1]
             else:
-                await send_command(host, command=value)
+                result, _ = await send_command(host, command=value)
                 target_cmd = value
 
             knowledge = list_knowledge(host)
@@ -202,7 +203,9 @@ async def telnet_send(host: str, type: str, value: str) -> Any:
             ):
                 note = f"New command '{target_cmd}' discovered. Save it using the 'command' tool if it worked."
 
-            return wrap_result(host, note=note)
+            if note:
+                return f"{result}\n\n---\nNOTE: {note}"
+            return result
 
     except Exception as e:
         return str(e)
