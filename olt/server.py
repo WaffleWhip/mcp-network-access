@@ -106,23 +106,20 @@ def command(
 
 
 @mcp.tool()
-async def telnet(
-    host: str, port: int = 23, length: int = 20, force: bool = False
-) -> Any:
+async def telnet(host: str, port: int = 23, length: int = 20, new: bool = False) -> Any:
     """Open telnet connection to OLT.
 
-    IMPORTANT: Session persists between calls. Use force=True ONLY if stuck or
-    need fresh connection. Check is_logged_in status first.
+    IMPORTANT: Session persists between calls. Use new=True to start fresh.
 
     - length: Number of terminal lines to return (default 20, max 100).
-    - force: Force close existing session and start fresh (default False).
-             USE WHEN: previous session stuck, login failed, or OLT not responding.
+    - new: Delete existing session and start fresh connection (default False).
+           USE WHEN: previous session stuck, login failed, or OLT not responding.
     """
     if not hasattr(mcp, "_heartbeat_started"):
         asyncio.create_task(_heartbeat())
         mcp._heartbeat_started = True
     try:
-        if force:
+        if new:
             close_session(host)
         if not is_logged_in(host):
             await vt_connect(host, port)
@@ -147,9 +144,9 @@ async def telnet_send(host: str, type: str, value: str) -> Any:
 
     TROUBLESHOOTING:
     - If stuck at username prompt after login: OLT device-side session active.
-      Use telnet(host, force=True) to force fresh connection.
+      Use telnet(host, new=True) to start fresh connection.
     - If "Login failed" or "locked": Too many failed attempts. Wait 5-10 min
-      or use telnet(host, force=True) to get fresh session.
+      or use telnet(host, new=True) to get fresh session.
 
     - BATCHING: Separate multiple commands with ", ".
       Example: "enable, show running, quit"
