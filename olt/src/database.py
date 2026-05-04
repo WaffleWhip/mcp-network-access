@@ -59,15 +59,15 @@ def list_knowledge(host: str) -> List[Dict[str, Any]]:
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
-            "SELECT syntax, sequence_json as steps_json, description FROM olt_knowledge WHERE host = ?",
+            "SELECT syntax, sequence_json as hint_json, description FROM olt_knowledge WHERE host = ?",
             (host,),
         ).fetchall()
         result = []
         for r in rows:
             d = dict(r)
-            steps = json.loads(d.pop("steps_json"))
-            d["steps"] = steps
-            d["steps_count"] = len(steps)
+            hint_list = json.loads(d.pop("hint_json"))
+            d["hint"] = hint_list
+            d["hint_count"] = len(hint_list)
             result.append(d)
         return result
     finally:

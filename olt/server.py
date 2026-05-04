@@ -75,19 +75,21 @@ def command(
     action: str,
     host: str,
     syntax: Optional[str] = None,
-    path: Optional[str] = None,
+    hint: Optional[str] = None,
     description: str = "",
 ) -> Any:
-    """Knowledge Base of operational hints and recipes.
+    """Knowledge Base of OLT commands and execution paths.
 
-    AI GUIDELINE: Always check for hints before discovering new commands.
-    If a hint exists, YOU must execute the steps manually via telnet_send.
+    AI GUIDELINE: Always check for hints before executing. If a hint exists,
+    use it to build the correct batch command sequence.
 
-    - action="list": Get hints/recipes for this host.
-    - action="save": Store a verified hint (e.g. syntax="show version", path="config, show version").
-    - action="delete": Remove a hint.
+    - action="list": Get all saved commands/hints for this host.
+    - action="save": Store a command with execution hint.
+      Params: syntax (command), hint (execution path), description (function).
+      Example: syntax="show version", hint="login, cmd", description="Show version info"
+    - action="delete": Remove a saved command.
 
-    NOTE: If output needs pagination, include buttons in your manual execution.
+    EXECUTION: When hint exists, build batch: "username, password, hint, [ENTER], ..."
     """
     try:
         if action == "list":
@@ -95,9 +97,9 @@ def command(
         elif action == "save":
             if not syntax and not description:
                 return "Error: syntax or description required"
-            path_list = path.split(", ") if path else []
+            hint_list = hint.split(", ") if hint else []
             name = syntax if syntax else f"[NOTE] {description[:50]}"
-            return edit_knowledge("save", host, name, path_list, description)
+            return edit_knowledge("save", host, name, hint_list, description)
         elif action == "delete":
             if not syntax:
                 return "Error: syntax required"
