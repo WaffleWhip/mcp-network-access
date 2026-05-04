@@ -19,7 +19,7 @@ def clean(text):
 
 
 async def _read_until_silence(host, timeout=15.0, silence_gap=0.5):
-    """Event-driven: Reads until silence is detected or total timeout."""
+    """Event-driven: Reads until last line has content + silence, or timeout."""
     key = host.upper()
     if key not in SESSIONS:
         return ""
@@ -28,6 +28,7 @@ async def _read_until_silence(host, timeout=15.0, silence_gap=0.5):
     buffer = ""
     start_time = time.time()
     last_data_time = time.time()
+    last_line_has_content = False
 
     try:
         while (time.time() - start_time) < timeout:
@@ -35,15 +36,25 @@ async def _read_until_silence(host, timeout=15.0, silence_gap=0.5):
                 chunk = await asyncio.wait_for(r.read(4096), timeout=0.2)
                 if chunk:
                     buffer += chunk
-                    # Update rolling session buffer (keep last 5000 chars for safety)
                     SESSIONS[key]["rolling_buffer"] = (
                         SESSIONS[key].get("rolling_buffer", "") + chunk
                     )[-5000:]
                     last_data_time = time.time()
+
+                    # Check if last line has content (non-blank)
+                    lines = buffer.strip().split("\n")
+                    if lines:
+                        last_line = lines[-1].strip()
+                        last_line_has_content = bool(last_line)
                 else:
                     break
             except asyncio.TimeoutError:
-                if buffer and (time.time() - last_data_time) >= silence_gap:
+                # Only return if: buffer has content, last line non-blank, and silence_gap passed
+                if (
+                    buffer
+                    and last_line_has_content
+                    and (time.time() - last_data_time) >= silence_gap
+                ):
                     return buffer
                 continue
     except Exception:
