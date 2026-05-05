@@ -1,9 +1,8 @@
 #!/bin/bash
-# OLT MCP Installer - Location Agnostic
+# OLT MCP Installer - Systemd + UV
 set -e
 
 # Configuration
-REPO_URL="https://github.com/WaffleWhip/mcp-network-access.git"
 APP_NAME="olt"
 SERVICE_NAME="mcp-olt"
 PORT=8002
@@ -24,81 +23,46 @@ if [ -f "server.py" ] && [ -d "src" ]; then
     echo "--- Local source detected at $TARGET_DIR ---"
 else
     TARGET_DIR="/root/poc/$APP_NAME"
-    echo "--- Defaulting target to $TARGET_DIR ---"
+    echo "--- Using default target: $TARGET_DIR ---"
 fi
 
-# 3. Existing Installation Check
-if systemctl is-active --quiet $SERVICE_NAME; then
-    CURRENT_WD=$(systemctl cat $SERVICE_NAME | grep WorkingDirectory | cut -d'=' -f2)
-    echo "WARNING: OLT MCP service is already running."
-    echo "Current Location: $CURRENT_WD"
-    echo "Target Location:  $TARGET_DIR"
-    echo ""
-    echo "What would you like to do?"
-    echo "1) Reinstall (Stop existing and install in $TARGET_DIR)"
-    echo "2) Cancel"
-    
-    if [ -c /dev/tty ]; then
-        read -p "Select an option [1-2]: " choice < /dev/tty
-    else
-        echo "--- Non-interactive session, defaulting to Reinstall ---"
-        choice="1"
-    fi
+mkdir -p "$TARGET_DIR"
 
-    case $choice in
-        1)
-            echo "--- Stopping existing service ---"
-            systemctl stop $SERVICE_NAME 2>/dev/null || true
-            systemctl disable $SERVICE_NAME 2>/dev/null || true
-            ;;
-        *)
-            echo "Installation cancelled."
-            exit 0
-            ;;
-    esac
-fi
+# 3. Stop existing service and kill any process on port
+echo "--- Stopping existing service and cleaning port $PORT ---"
+systemctl stop $SERVICE_NAME 2>/dev/null || true
+systemctl disable $SERVICE_NAME 2>/dev/null || true
+fuser -k $PORT/tcp 2>/dev/null || true
+sleep 2
 
-# 4. Source Logic (Fetch if needed)
-if [ ! -f "$TARGET_DIR/server.py" ]; then
-    mkdir -p "$TARGET_DIR"
-    echo "--- Fetching source from GitHub into $TARGET_DIR ---"
-    apt-get update -qq && apt-get install -y -qq git curl
-    TEMP_DIR=$(mktemp -d)
-    git clone --quiet $REPO_URL "$TEMP_DIR"
-    if [ -d "$TEMP_DIR/$APP_NAME" ]; then
-        cp -r "$TEMP_DIR/$APP_NAME/." "$TARGET_DIR/"
-        rm -rf "$TEMP_DIR"
-    else
-        echo "Error: '$APP_NAME' directory not found in repository."
-        rm -rf "$TEMP_DIR"
-        exit 1
-    fi
+# 4. Copy source files if running from local
+if [ -f "server.py" ] && [ -d "src" ] && [ "$TARGET_DIR" != "$(pwd)" ]; then
+    echo "--- Copying local source to $TARGET_DIR ---"
+    cp -r "$(pwd)/." "$TARGET_DIR/"
 fi
 
 cd "$TARGET_DIR"
 
-# 5. Environment Setup (Venv)
-if [ ! -d ".venv" ]; then
-    echo "--- Creating Virtual Environment ---"
-    if ! command -v uv &> /dev/null; then
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        export PATH="$HOME/.local/bin:$PATH"
-    fi
+# 5. Environment Setup with UV
+echo "--- Setting up Python environment with UV ---"
+if ! command -v uv &> /dev/null; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
+# Create venv if not exists or if packages missing
+if [ ! -d ".venv" ] || [ ! -f ".venv/bin/python" ]; then
+    echo "--- Creating venv ---"
     uv venv .venv
-    source .venv/bin/activate
-    uv pip install --quiet fastmcp telnetlib3
 fi
 
-# 6. Port Cleanup
-echo "--- Cleaning up port $PORT ---"
-STALE_PIDS=$(lsof -t -i:$PORT || true)
-if [ -n "$STALE_PIDS" ]; then
-    kill -9 $STALE_PIDS || true
-fi
+echo "--- Installing dependencies ---"
+source .venv/bin/activate
+uv pip install --quiet fastmcp telnetlib3 uvicorn
 
-# 7. Systemd Unit
+# 6. Systemd Unit
 echo "--- Installing systemd service ---"
-cat <<EOT | tee /etc/systemd/system/$SERVICE_NAME.service > /dev/null
+cat <<EOF > /etc/systemd/system/$SERVICE_NAME.service
 [Unit]
 Description=OLT MCP Server
 After=network.target
@@ -110,23 +74,31 @@ WorkingDirectory=$TARGET_DIR
 ExecStart=$TARGET_DIR/.venv/bin/python server.py
 Restart=always
 RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-EOT
+EOF
 
+# 7. Reload systemd and start
 systemctl daemon-reload
 systemctl enable $SERVICE_NAME
 systemctl restart $SERVICE_NAME
 
 # 8. Verification
 echo "--- Verifying Service ---"
-sleep 5
+sleep 3
 if systemctl is-active --quiet $SERVICE_NAME; then
-    echo "Success: OLT MCP is running on port $PORT."
-    echo "Location: $TARGET_DIR"
+    echo "=========================================="
+    echo "   SUCCESS: OLT MCP is running"
+    echo "   Port: $PORT"
+    echo "   Location: $TARGET_DIR"
+    echo "=========================================="
+    systemctl status $SERVICE_NAME --no-pager
 else
     echo "Error: OLT MCP failed to start."
-    journalctl -u $SERVICE_NAME -n 20
+    echo "--- Last 20 lines of journal ---"
+    journalctl -u $SERVICE_NAME -n 20 --no-pager
     exit 1
 fi

@@ -1,10 +1,8 @@
 # GenieACS MCP
 
-TR-069 interface for remote ONT management through GenieACS server.
+TR-069 bridge for ONT management via GenieACS server.
 
-## Quick Install
-
-Run this one-line command on your server:
+## Quick Start
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/WaffleWhip/mcp-network-access/main/genieacs/install.sh | bash
@@ -12,20 +10,27 @@ curl -sSL https://raw.githubusercontent.com/WaffleWhip/mcp-network-access/main/g
 
 ## Tools
 
-- `ont_list()`: List all ONTs.
-- `ont_params(sn_or_id)`: Dump device parameters.
-- `ont_custom(sn_or_id, path, value, refresh)`: GET or SET parameter.
-- `ont_tasks(sn_or_id)`: Monitor command queue.
-- `ont_faults(sn_or_id)`: View fault logs.
-- `ont_delete_task(task_id)`: Remove task.
-- `ont_reboot(sn_or_id)`: Reboot device.
+| Tool | Description |
+|------|-------------|
+| `ont_list` | List all ONTs |
+| `ont_params` | Dump device parameters |
+| `ont_custom` | GET or SET TR-069 parameter |
+| `ont_tasks` | Monitor command queue |
+| `ont_faults` | View fault logs |
+| `ont_delete_task` | Remove task from queue |
+| `ont_reboot` | Reboot ONT device |
 
-## Structure
+## Includes
 
-- `server.py`: MCP Bridge.
-- `install.sh`: Unified installer.
-- `start.sh`: Startup wrapper.
-- `genieacs/`: Source and data.
+- GenieACS server (MongoDB + Redis)
+- MCP bridge on port 8001
 
----
-[Back to main README](../README.md)
+## Files
+
+```
+genieacs/
+├── server.py          # MCP server
+├── src/               # Source modules
+├── genieacs/          # GenieACS server
+└── install.sh         # Systemd + deps installer
+```

@@ -1,5 +1,7 @@
-"""OLT MCP - Terminal Driver & Knowledge Base"""
+"""OLT MCP - 3 Tools: telnet, command, inventory"""
 
+import os, yaml
+from pathlib import Path
 from fastmcp import FastMCP
 from typing import Optional, List, Any
 import asyncio
@@ -7,199 +9,244 @@ import asyncio
 from src.telnet import (
     connect as vt_connect,
     send_command,
-    send_button,
     close_session,
     is_logged_in,
     _heartbeat,
-    get_last_buffer,
-    set_preferred_length,
+    get_status,
+    set_wait,
+    get_btn_map,
 )
-from src.database import list_inventory, list_knowledge, edit_inventory, edit_knowledge
+from src.database import (
+    list_inventory,
+    list_knowledge,
+    edit_inventory,
+    edit_knowledge,
+)
 
-mcp = FastMCP("OLT-MCP")
+mcp = FastMCP("olt")
+
+BUTTONS_FILE = Path(__file__).parent / "storage" / "buttons.yaml"
+
+HOST_LOCKS = {}
+HOST_PENDING = {}
 
 
-def wrap_result(host: str, note: Optional[str] = None) -> str:
-    """Returns raw terminal state."""
-    terminal_text = get_last_buffer(host)
-    if note:
-        return f"{terminal_text}\n\n---\nNOTE: {note}"
-    return terminal_text
+def load_buttons():
+    if BUTTONS_FILE.exists():
+        with open(BUTTONS_FILE) as f:
+            return yaml.safe_load(f)
+    return {}
+
+
+async def wait_for_host(host: str, wait_for_previous: Optional[bool]):
+    if not wait_for_previous:
+        return
+    if host not in HOST_LOCKS:
+        HOST_LOCKS[host] = asyncio.Lock()
+    lock = HOST_LOCKS[host]
+    if lock.locked():
+        HOST_PENDING[host] = True
+        await lock.acquire()
+        HOST_PENDING[host] = False
+    else:
+        await lock.acquire()
+
+
+def release_host(host: str):
+    if host in HOST_LOCKS and HOST_LOCKS[host].locked():
+        HOST_LOCKS[host].release()
+
+
+# ============ TELNET ============
 
 
 @mcp.tool()
-def inventory(
-    action: str = "list",
+async def telnet(
+    action: str,
     host: Optional[str] = None,
-    data: Optional[dict] = None,
-    detail: bool = False,
+    value: Optional[str] = None,
+    seconds: Optional[float] = None,
+    wait_for_previous: Optional[bool] = None,
 ) -> Any:
-    """Manage OLT inventory (credentials and IPs).
+    """Telnet tool with sub-commands: create, send, wait, status, buttons
 
-    - action="list": returns name, host, vendor, model.
-    - action="list" + detail=True: returns user + password (requires host).
-    - action="save" + data={name, host, user, password, vendor, model}: Add/Update OLT.
-    - action="delete" + host: Remove OLT.
+    - create: Create new session (host required)
+    - send: Send command(s) or buttons (host, value required)
+    - wait: Set wait time in seconds (host, seconds required)
+    - status: Check session status (host required)
+    - buttons: Show valid buttons (no params)
     """
-    try:
-        if action == "list":
-            result = list_inventory(host)
-            if detail and not host:
-                return "Error: detail=True requires host parameter"
-            if not detail:
-                for item in result:
-                    item.pop("user", None)
-                    item.pop("password", None)
-            return result
-        elif action == "save":
-            if not data:
-                return "Error: data dict required for save"
-            return edit_inventory("save", data)
-        elif action == "delete":
-            if not host:
-                return "Error: host required for delete"
-            from src.config import INFRA_DB
+    if not hasattr(mcp, "_heartbeat_started"):
+        asyncio.create_task(_heartbeat())
+        mcp._heartbeat_started = True
 
-            conn = __import__("sqlite3").connect(INFRA_DB)
-            conn.execute("DELETE FROM olt_credentials WHERE host = ?", (host,))
-            conn.commit()
-            conn.close()
-            return f"Success: Inventory '{host}' deleted"
-        return "Error: invalid action"
-    except Exception as e:
-        return str(e)
+    try:
+        if action in ("create", "send"):
+            if not host:
+                return {"error": "host required"}
+            await wait_for_host(host, wait_for_previous)
+
+        if action == "create":
+            if not host:
+                return {"error": "host required for create"}
+            close_session(host)
+            result = await vt_connect(host)
+            return result
+
+        elif action == "send":
+            if not host or not value:
+                return {"error": "host and value required for send"}
+            if not is_logged_in(host):
+                await vt_connect(host)
+                await asyncio.sleep(0.2)
+
+            if "," in value:
+                cmds = [c.strip() for c in value.split(",") if c.strip()]
+                result, err = await send_command(host, commands=cmds)
+            else:
+                result, err = await send_command(host, command=value)
+
+            if err:
+                return {"error": err}
+            return result
+
+        elif action == "wait":
+            if not host or seconds is None:
+                return {"error": "host and seconds required for wait"}
+            return set_wait(host, seconds)
+
+        elif action == "status":
+            if not host:
+                return {"error": "host required for status"}
+            return get_status(host)
+
+        elif action == "buttons":
+            return load_buttons()
+
+        return {
+            "error": f"Unknown action: {action}. Valid: create, send, wait, status, buttons"
+        }
+
+    finally:
+        if action in ("create", "send"):
+            release_host(host)
+
+
+# ============ COMMAND ============
 
 
 @mcp.tool()
 def command(
     action: str,
-    host: str,
+    host: Optional[str] = None,
     syntax: Optional[str] = None,
     hint: Optional[str] = None,
-    description: str = "",
+    description: Optional[str] = None,
+    wait_for_previous: Optional[bool] = None,
 ) -> Any:
-    """Knowledge Base of OLT commands and execution paths.
+    """Command knowledge base with actions: list, save, update, delete
 
-    AI GUIDELINE: Always check for hints before executing. If a hint exists,
-    use it to build the correct batch command sequence.
-
-    - action="list": Get all saved commands/hints for this host.
-    - action="save": Store a command with execution hint.
-      Params: syntax (command), hint (execution path), description (function).
-      Example: syntax="show version", hint="login, cmd", description="Show version info"
-    - action="delete": Remove a saved command.
-
-    EXECUTION: When hint exists, build batch: "username, password, hint, [ENTER], ..."
+    - list: List commands (host required, syntax optional)
+    - save: Save new command (host, syntax, hint, description required)
+    - update: Update command (host, syntax required)
+    - delete: Delete command (host, syntax required)
     """
-    try:
-        if action == "list":
-            return list_knowledge(host)
-        elif action == "save":
-            if not syntax and not description:
-                return "Error: syntax or description required"
-            hint_list = hint.split(", ") if hint else []
-            name = syntax if syntax else f"[NOTE] {description[:50]}"
-            return edit_knowledge("save", host, name, hint_list, description)
-        elif action == "delete":
-            if not syntax:
-                return "Error: syntax required"
-            return edit_knowledge("delete", host, syntax)
-        return "Error: invalid action"
-    except Exception as e:
-        return str(e)
+    if action == "list":
+        if not host:
+            return {"error": "host required"}
+        knowledge = list_knowledge(host)
+        if syntax:
+            found = [k for k in knowledge if k["syntax"] == syntax]
+            return found[0] if found else {"error": f"Command '{syntax}' not found"}
+        return ", ".join(k["syntax"] for k in knowledge) if knowledge else ""
+
+    elif action == "save":
+        if not host or not syntax or not hint or not description:
+            return {"error": "host, syntax, hint, description all required for save"}
+        hint_list = [h.strip() for h in hint.split(",") if h.strip()]
+        return edit_knowledge("save", host, syntax, hint_list, description)
+
+    elif action == "update":
+        if not host or not syntax:
+            return {"error": "host and syntax required for update"}
+        hint_list = [h.strip() for h in hint.split(",") if h.strip()] if hint else None
+        return edit_knowledge("update", host, syntax, hint_list, description or "")
+
+    elif action == "delete":
+        if not host or not syntax:
+            return {"error": "host and syntax required for delete"}
+        return edit_knowledge("delete", host, syntax)
+
+    return {"error": f"Unknown action: {action}. Valid: list, save, update, delete"}
+
+
+# ============ INVENTORY ============
 
 
 @mcp.tool()
-async def telnet(host: str, port: int = 23, length: int = 20, new: bool = False) -> Any:
-    """Open telnet connection to OLT.
+def inventory(
+    action: str,
+    name: Optional[str] = None,
+    host: Optional[str] = None,
+    user: Optional[str] = None,
+    password: Optional[str] = None,
+    vendor: Optional[str] = None,
+    model: Optional[str] = None,
+    wait_for_previous: Optional[bool] = None,
+) -> Any:
+    """Inventory with actions: list, save, update, delete
 
-    IMPORTANT: Session persists between calls. Use new=True to start fresh.
-
-    - length: Number of terminal lines to return (default 20, max 100).
-    - new: Delete existing session and start fresh connection (default False).
-           USE WHEN: previous session stuck, login failed, or OLT not responding.
+    - list: List OLTs (name optional)
+    - save: Add new OLT (all fields required)
+    - update: Update OLT (name required)
+    - delete: Delete OLT (host required)
     """
-    if not hasattr(mcp, "_heartbeat_started"):
-        asyncio.create_task(_heartbeat())
-        mcp._heartbeat_started = True
-    try:
-        if new:
-            close_session(host)
-        if not is_logged_in(host):
-            await vt_connect(host, port)
+    if action == "list":
+        inventory = list_inventory()
+        if name:
+            found = [i for i in inventory if i["name"] == name]
+            return found[0] if found else {"error": f"OLT '{name}' not found"}
+        return ", ".join(item["name"] for item in inventory) if inventory else ""
 
-        set_preferred_length(host, length)
-        return wrap_result(host)
-    except Exception as e:
-        return str(e)
+    elif action == "save":
+        if not name or not host or not user or not password or not vendor or not model:
+            return {
+                "error": "name, host, user, password, vendor, model all required for save"
+            }
+        return edit_inventory(
+            "save",
+            {
+                "name": name,
+                "host": host,
+                "user": user,
+                "password": password,
+                "vendor": vendor,
+                "model": model,
+            },
+        )
 
+    elif action == "update":
+        if not name:
+            return {"error": "name required for update"}
+        data = {"name": name}
+        if host:
+            data["host"] = host
+        if user:
+            data["user"] = user
+        if password:
+            data["password"] = password
+        if vendor:
+            data["vendor"] = vendor
+        if model:
+            data["model"] = model
+        return edit_inventory("update", data)
 
-@mcp.tool()
-async def telnet_send(host: str, value: str) -> Any:
-    """Send command(s) to OLT terminal.
+    elif action == "delete":
+        if not host:
+            return {"error": "host required for delete"}
+        return edit_inventory("delete", {"host": host})
 
-    IMPORTANT: Session must exist first. If "NOT_CONNECTED", call telnet() first.
-
-    AUTO-DETECT: Commands and buttons are automatically detected.
-    - Button format: [KEY] e.g. [ENTER], [SPACE], [Q], [TAB]
-    - Command format: plain text
-
-    BATCHING: Separate with ", ".
-    Example: "huawei, huawei123, display version,[ENTER],[Q]"
-
-    BUTTONS: [ENTER], [SPACE], [Q], [QUIT], [TAB], [ESC]
-    - [ENTER] = newline
-    - [SPACE] = space
-    - [Q] = quit pagination
-    """
-
-    try:
-        if not is_logged_in(host):
-            await vt_connect(host)
-            await asyncio.sleep(0.2)
-
-        result = ""
-        if "," in value:
-            cmds = [c.strip() for c in value.split(",") if c.strip()]
-            result, _ = await send_command(host, commands=cmds)
-            target_cmd = cmds[-1]
-        else:
-            result, _ = await send_command(host, command=value)
-            target_cmd = value
-
-            knowledge = list_knowledge(host)
-            known_syntaxes = [k["syntax"].lower() for k in knowledge]
-            buffer = get_last_buffer(host)
-            last_line = buffer.strip().split("\n")[-1]
-            is_operational = any(p in last_line for p in ["#", ">"])
-
-            inventory_data = list_inventory(host)
-            creds = []
-            if inventory_data:
-                olt = inventory_data[0]
-                creds = [
-                    str(olt.get("user", "")).lower(),
-                    str(olt.get("password", "")).lower(),
-                ]
-
-            is_cred = target_cmd.lower() in creds
-            is_discovery = target_cmd.strip() in ["?", ""]
-
-            note = None
-            if (
-                is_operational
-                and target_cmd.lower() not in known_syntaxes
-                and not is_cred
-                and not is_discovery
-            ):
-                note = f"New command '{target_cmd}' discovered. Save it using the 'command' tool if it worked."
-
-            if note:
-                return f"{result}\n\n---\nNOTE: {note}"
-            return result
-
-    except Exception as e:
-        return str(e)
+    return {"error": f"Unknown action: {action}. Valid: list, save, update, delete"}
 
 
 if __name__ == "__main__":

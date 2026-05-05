@@ -1,31 +1,44 @@
-# OLT MCP (Telnet)
+# OLT MCP
 
-Multi-vendor OLT terminal interaction via persistent Telnet sessions.
+Telnet CLI management for OLTs (Nokia, Huawei, ZTE, Fiberhome).
 
-## Quick Install
+## Quick Start
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/WaffleWhip/mcp-network-access/main/olt/install.sh | bash
 ```
 
-## Core Tools
+## Tools
 
-| Tool | Mode | Description |
-|------|------|-------------|
-| `inventory` | View/Edit | Manage OLT credentials and IPs. |
-| `telnet` | View | Open session and observe terminal state. |
-| `telnet_send` | Action | Send commands or buttons manually. |
-| `command` | Knowledge | Knowledge base of operational hints and recipes. |
+| Tool | Actions | Description |
+|------|---------|-------------|
+| `telnet` | create, send, wait, status, buttons | Telnet session management |
+| `command` | list, save, update, delete | Command knowledge base |
+| `inventory` | list, save, update, delete | OLT inventory |
 
-## Knowledge Base (Hints)
+## Examples
 
-This system uses a **Knowledge-First** approach. Before executing a command, the agent checks for a "Hint" (a recipe of proven steps).
+```python
+# Connect to OLT
+telnet(action="create", host="10.0.0.1")
 
-1. **Check Hint:** `command(action="list", host="10.x.x.x")`
-2. **Execute Manually:** If a hint like `config, show version` exists, the agent must type those steps manually via `telnet_send`.
-3. **Contribute:** If the agent discovers a new working sequence, it saves it as a Hint for others.
+# Login
+telnet(action="send", value="admin,password123")
 
----
-Note: This system relies on AI agents to interpret terminal states and execute steps manually.
+# Send command
+telnet(action="send", value="show version")
 
-[Back to main README](../README.md)
+# Save command to DB
+command(action="save", host="10.0.0.1", syntax="show version",
+        hint="show version", description="Show system version")
+```
+
+## Files
+
+```
+olt/
+├── server.py          # MCP server
+├── src/               # Source modules
+├── storage/            # Data (buttons.yaml, olt.db)
+└── install.sh          # Systemd + UV installer
+```
