@@ -1,7 +1,5 @@
 ENTER: "\n"
 SPACE: " "
-Q: "q"
-QUIT: "q"
 ESC: "\x1b"
 TAB: "\t"
 UP: "\x1b[A"

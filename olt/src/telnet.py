@@ -1,12 +1,14 @@
-"""OLT Manager - Telnet Driver (Last Output Only)"""
+"""OLT Manager - Telnet Driver"""
 
-import os, yaml, telnetlib3, asyncio, re, time
+import yaml, telnetlib3, asyncio, re, time
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 SESSIONS: Dict[str, Any] = {}
 
 BUTTONS_FILE = Path(__file__).parent.parent / "storage" / "buttons.yaml"
+
+GLOBAL_WAIT = 10.0
 
 
 def load_buttons():
@@ -29,7 +31,7 @@ def clean(text):
     return text.strip()
 
 
-async def _read_until_silence(host, timeout=15.0, silence_gap=0.5):
+async def _read_output(host, timeout=10.0):
     key = host.upper()
     if key not in SESSIONS:
         return ""
@@ -37,49 +39,42 @@ async def _read_until_silence(host, timeout=15.0, silence_gap=0.5):
     r = SESSIONS[key]["r"]
     buffer = ""
     start_time = time.time()
-    last_data_time = time.time()
-    last_line_has_content = False
 
-    try:
-        while (time.time() - start_time) < timeout:
-            try:
-                chunk = await asyncio.wait_for(r.read(4096), timeout=0.2)
-                if chunk:
-                    buffer += chunk
-                    last_data_time = time.time()
-                    lines = buffer.strip().split("\n")
-                    if lines:
-                        last_line = lines[-1].strip()
-                        last_line_has_content = bool(last_line)
-                else:
-                    break
-            except asyncio.TimeoutError:
-                if (
-                    buffer
-                    and last_line_has_content
-                    and (time.time() - last_data_time) >= silence_gap
-                ):
-                    return buffer
-                continue
-    except Exception:
-        pass
+    while (time.time() - start_time) < timeout:
+        try:
+            chunk = await asyncio.wait_for(r.read(4096), timeout=0.3)
+            if chunk:
+                buffer += chunk
+            else:
+                break
+        except asyncio.TimeoutError:
+            break
+
     return buffer
 
 
 async def connect(host, port=23):
     key = host.upper()
+
     if key in SESSIONS:
         try:
             SESSIONS[key]["w"].write("\n")
             await SESSIONS[key]["w"].drain()
-            banner = await _read_until_silence(host, timeout=2)
+            banner = await _read_output(host, timeout=5.0)
             SESSIONS[key]["last_activity"] = time.time()
             SESSIONS[key]["last_output"] = clean(banner)
+            SESSIONS[key]["last_cmd"] = ""
             return clean(banner)
         except:
             pass
 
-    r, w = await telnetlib3.open_connection(host, port or 23, encoding="ascii")
+    try:
+        r, w = await asyncio.wait_for(
+            telnetlib3.open_connection(host, port or 23, encoding="ascii"), timeout=10.0
+        )
+    except asyncio.TimeoutError:
+        return "CONNECTION_TIMEOUT"
+
     SESSIONS[key] = {
         "r": r,
         "w": w,
@@ -87,31 +82,33 @@ async def connect(host, port=23):
         "last_output": "",
         "last_cmd": "",
         "last_id": 0,
-        "wait_time": 1.0,
     }
-    banner = await _read_until_silence(host, timeout=5)
+    banner = await _read_output(host, timeout=5.0)
     SESSIONS[key]["last_output"] = clean(banner)
     return clean(banner)
 
 
-async def send_command(host, command=None, commands=None):
+async def send_command(host, command=None, commands=None, delay=0):
     key = host.upper()
     if key not in SESSIONS:
         return None, "NOT_CONNECTED"
 
-    wait = SESSIONS[key].get("wait_time", 1.0)
     r, w = SESSIONS[key]["r"], SESSIONS[key]["w"]
-    out = ""
     items = commands if commands else ([command] if command else [])
     btn_map = get_btn_map()
 
     cmd_id = SESSIONS[key]["last_id"]
+    accumulated = ""
 
-    for item in items:
+    for idx, item in enumerate(items):
+        if idx > 0 and delay > 0:
+            await asyncio.sleep(delay)
+
         stripped = str(item).strip()
         cmd_id += 1
+        is_button = stripped.startswith("(") and stripped.endswith(")")
 
-        if stripped.startswith("(") and stripped.endswith(")"):
+        if is_button:
             btn_key = stripped[1:-1].upper()
             if btn_key in btn_map:
                 char = btn_map[btn_key]
@@ -127,41 +124,28 @@ async def send_command(host, command=None, commands=None):
 
         await w.drain()
 
-        if wait > 0:
-            await asyncio.sleep(wait)
+        if delay > 0:
+            await asyncio.sleep(delay)
 
-        res = await _read_until_silence(host, timeout=20.0)
-        out += res
+        res = await _read_output(host, timeout=GLOBAL_WAIT)
+        accumulated += res
 
         SESSIONS[key]["last_id"] = cmd_id
         SESSIONS[key]["last_activity"] = time.time()
-        SESSIONS[key]["last_output"] = clean(out)
 
-    return clean(out), ""
+    SESSIONS[key]["last_output"] = clean(accumulated)
+    return clean(accumulated), ""
 
 
-def get_status(host: str) -> dict:
+def get_status(host: str) -> str:
     key = host.upper()
     if key not in SESSIONS:
-        return {"connected": False, "host": host}
+        return "error: not connected"
 
     session = SESSIONS[key]
-    last_output = clean(session.get("last_output", ""))
-    return {
-        "connected": True,
-        "host": host,
-        "last_id": session.get("last_id", 0),
-        "last_cmd": session.get("last_cmd", ""),
-        "last_output": last_output,
-        "last_activity": session.get("last_activity"),
-    }
+    last_output_raw = session.get("last_output", "")
 
-
-def set_wait(host: str, seconds: float):
-    key = host.upper()
-    if key in SESSIONS:
-        SESSIONS[key]["wait_time"] = seconds
-    return {"host": host, "wait_time": seconds}
+    return last_output_raw
 
 
 def is_logged_in(host: str):

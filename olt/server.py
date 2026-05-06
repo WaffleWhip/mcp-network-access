@@ -13,8 +13,6 @@ from src.telnet import (
     is_logged_in,
     _heartbeat,
     get_status,
-    set_wait,
-    get_btn_map,
 )
 from src.database import (
     list_inventory,
@@ -65,7 +63,7 @@ async def telnet_create(
     host: str,
     wait_for_previous: Optional[bool] = None,
 ) -> Any:
-    """Create new telnet session to OLT host."""
+    """Create new telnet session to OLT host. If session already exists, will reconnect. Recommended: check telnet_status first to continue existing session."""
     if not hasattr(mcp, "_heartbeat_started"):
         asyncio.create_task(_heartbeat())
         mcp._heartbeat_started = True
@@ -83,9 +81,10 @@ async def telnet_create(
 async def telnet_send(
     host: str,
     value: str,
+    delay: float,
     wait_for_previous: Optional[bool] = None,
 ) -> Any:
-    """Send command(s) or buttons to OLT. Commands auto-enter, batch with comma."""
+    """Send command(s) or buttons to OLT. Use comma as batch delimiter (e.g., 'cmd1,cmd2,(SPACE)'). Best for login sequences, known command paths, or pagination. delay=seconds between each batch (recommended 3s for stability). Returns output directly."""
     await wait_for_host(host, wait_for_previous)
     try:
         if not is_logged_in(host):
@@ -94,7 +93,7 @@ async def telnet_send(
 
         if "," in value:
             cmds = [c.strip() for c in value.split(",") if c.strip()]
-            result, err = await send_command(host, commands=cmds)
+            result, err = await send_command(host, commands=cmds, delay=delay)
         else:
             result, err = await send_command(host, command=value)
 
@@ -106,25 +105,19 @@ async def telnet_send(
 
 
 @mcp.tool()
-def telnet_wait(
-    host: str,
-    seconds: float,
-) -> Any:
-    """Set default wait time in seconds for session."""
-    return set_wait(host, seconds)
-
-
-@mcp.tool()
 def telnet_status(
     host: str,
+    wait_for_previous: Optional[bool] = None,
 ) -> Any:
-    """Check current telnet session status."""
+    """Check current telnet position/state. Use when agent needs to know current prompt or state."""
     return get_status(host)
 
 
 @mcp.tool()
-def telnet_buttons() -> Any:
-    """List all available buttons."""
+def telnet_buttons(
+    wait_for_previous: Optional[bool] = None,
+) -> Any:
+    """List all available buttons. Buttons can be used in batch commands via (NAME) placeholder, e.g., 'display version,(SPACE),q'."""
     return load_buttons()
 
 
@@ -133,17 +126,26 @@ def telnet_buttons() -> Any:
 
 @mcp.tool()
 def command_list(
-    host: str,
+    host: Optional[str] = None,
     syntax: Optional[str] = None,
+    hint: Optional[str] = None,
+    description: Optional[str] = None,
+    wait_for_previous: Optional[bool] = None,
 ) -> Any:
-    """List commands from knowledge base. host required, syntax optional."""
-    if not host:
-        return {"error": "host required"}
-    knowledge = list_knowledge(host)
-    if syntax:
-        found = [k for k in knowledge if k["syntax"] == syntax]
-        return found[0] if found else {"error": f"Command '{syntax}' not found"}
-    return ", ".join(k["syntax"] for k in knowledge) if knowledge else ""
+    """Search commands from knowledge base. At least 1 param required. Filters: host, syntax (partial match), hint (partial match), description (partial match)."""
+    if not host and not syntax and not hint and not description:
+        return {
+            "error": "at least 1 param required: host, syntax, hint, or description"
+        }
+    knowledge = list_knowledge(
+        host=host, syntax=syntax, hint=hint, description=description
+    )
+    if not knowledge:
+        return ""
+    return "\n".join(
+        f"[{k['host']}] {k['syntax']}: {k['description']} (hints: {', '.join(k['hint'])})"
+        for k in knowledge
+    )
 
 
 @mcp.tool()
@@ -152,6 +154,7 @@ def command_save(
     syntax: str,
     hint: str,
     description: str,
+    wait_for_previous: Optional[bool] = None,
 ) -> Any:
     """Save new command to knowledge base. ALL fields required."""
     if not host or not syntax or not hint or not description:
@@ -161,23 +164,10 @@ def command_save(
 
 
 @mcp.tool()
-def command_update(
-    host: str,
-    syntax: str,
-    hint: Optional[str] = None,
-    description: Optional[str] = None,
-) -> Any:
-    """Update existing command. host and syntax required."""
-    if not host or not syntax:
-        return {"error": "host and syntax required"}
-    hint_list = [h.strip() for h in hint.split(",") if h.strip()] if hint else None
-    return edit_knowledge("update", host, syntax, hint_list, description or "")
-
-
-@mcp.tool()
 def command_delete(
     host: str,
     syntax: str,
+    wait_for_previous: Optional[bool] = None,
 ) -> Any:
     """Delete command from knowledge base. host and syntax required."""
     if not host or not syntax:
@@ -191,6 +181,7 @@ def command_delete(
 @mcp.tool()
 def inventory_list(
     name: Optional[str] = None,
+    wait_for_previous: Optional[bool] = None,
 ) -> Any:
     """List OLT inventory. name optional."""
     inventory = list_inventory()
@@ -208,6 +199,7 @@ def inventory_save(
     password: str,
     vendor: str,
     model: str,
+    wait_for_previous: Optional[bool] = None,
 ) -> Any:
     """Add new OLT to inventory. ALL fields required."""
     if not name or not host or not user or not password or not vendor or not model:
@@ -233,6 +225,7 @@ def inventory_update(
     password: Optional[str] = None,
     vendor: Optional[str] = None,
     model: Optional[str] = None,
+    wait_for_previous: Optional[bool] = None,
 ) -> Any:
     """Update existing OLT. name required, others optional."""
     if not name:
@@ -254,6 +247,7 @@ def inventory_update(
 @mcp.tool()
 def inventory_delete(
     host: str,
+    wait_for_previous: Optional[bool] = None,
 ) -> Any:
     """Delete OLT from inventory. host required."""
     if not host:

@@ -6,37 +6,59 @@ from typing import Optional, List, Dict, Any
 from .config import INFRA_DB
 
 
-def init_db():
+def _table_exists(conn, table):
+    """Check if table exists."""
+    result = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()
+    return result is not None
+
+
+def ensure_db():
+    """Ensure database and tables exist. Called automatically by public functions."""
+    import os
+
+    db_dir = os.path.dirname(INFRA_DB)
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir, exist_ok=True)
+
     conn = sqlite3.connect(INFRA_DB)
     try:
         conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS olt_credentials (
-                name TEXT PRIMARY KEY,
-                host TEXT UNIQUE,
-                user TEXT,
-                password TEXT,
-                vendor TEXT,
-                model TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS olt_knowledge (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                host TEXT,
-                syntax TEXT,
-                description TEXT,
-                execution_mode TEXT DEFAULT 'EXEC',
-                sequence_json TEXT,
-                UNIQUE(host, syntax)
-            )
-        """)
+        if not _table_exists(conn, "olt_credentials"):
+            conn.execute("""
+                CREATE TABLE olt_credentials (
+                    name TEXT PRIMARY KEY,
+                    host TEXT UNIQUE,
+                    user TEXT,
+                    password TEXT,
+                    vendor TEXT,
+                    model TEXT
+                )
+            """)
+        if not _table_exists(conn, "olt_knowledge"):
+            conn.execute("""
+                CREATE TABLE olt_knowledge (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    host TEXT,
+                    syntax TEXT,
+                    description TEXT,
+                    execution_mode TEXT DEFAULT 'EXEC',
+                    sequence_json TEXT,
+                    UNIQUE(host, syntax)
+                )
+            """)
         conn.commit()
     finally:
         conn.close()
 
 
+def init_db():
+    ensure_db()
+
+
 def list_inventory(host: Optional[str] = None) -> List[Dict[str, Any]]:
+    ensure_db()
     conn = sqlite3.connect(INFRA_DB)
     conn.row_factory = sqlite3.Row
     try:
@@ -54,27 +76,46 @@ def list_inventory(host: Optional[str] = None) -> List[Dict[str, Any]]:
         conn.close()
 
 
-def list_knowledge(host: str) -> List[Dict[str, Any]]:
+def list_knowledge(
+    host: Optional[str] = None,
+    syntax: Optional[str] = None,
+    hint: Optional[str] = None,
+    description: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    ensure_db()
     conn = sqlite3.connect(INFRA_DB)
     conn.row_factory = sqlite3.Row
     try:
-        rows = conn.execute(
-            "SELECT syntax, sequence_json as hint_json, description FROM olt_knowledge WHERE host = ?",
-            (host,),
-        ).fetchall()
+        query = "SELECT host, syntax, sequence_json as hint_json, description FROM olt_knowledge WHERE 1=1"
+        params = []
+        if host:
+            query += " AND host = ?"
+            params.append(host)
+        if syntax:
+            query += " AND syntax LIKE ?"
+            params.append(f"%{syntax}%")
+        if description:
+            query += " AND description LIKE ?"
+            params.append(f"%{description}%")
+
+        rows = conn.execute(query, params).fetchall()
         result = []
         for r in rows:
             d = dict(r)
             hint_list = json.loads(d.pop("hint_json"))
             d["hint"] = hint_list
-            d["hint_count"] = len(hint_list)
-            result.append(d)
+            if hint:
+                if any(hint.lower() in h.lower() for h in hint_list):
+                    result.append(d)
+            else:
+                result.append(d)
         return result
     finally:
         conn.close()
 
 
 def edit_inventory(action: str, data: Dict[str, Any]) -> str:
+    ensure_db()
     conn = sqlite3.connect(INFRA_DB)
     try:
         if action == "save":
@@ -164,6 +205,7 @@ def edit_knowledge(
     hint: List[str] = None,
     description: str = "",
 ) -> str:
+    ensure_db()
     conn = sqlite3.connect(INFRA_DB)
     try:
         if action == "save":
@@ -228,6 +270,7 @@ def edit_knowledge(
 
 def find_hint(host: str, syntax: str) -> Optional[List[str]]:
     """Find hint for syntax using prefix matching. 'show card 1/1' → hint from 'show card'."""
+    ensure_db()
     conn = sqlite3.connect(INFRA_DB)
     conn.row_factory = sqlite3.Row
     try:
@@ -248,6 +291,7 @@ def find_hint(host: str, syntax: str) -> Optional[List[str]]:
 
 def resolve_syntax(host: str, syntax: str) -> Optional[Dict[str, Any]]:
     """Find syntax entry using prefix matching. Returns full row or None."""
+    ensure_db()
     conn = sqlite3.connect(INFRA_DB)
     conn.row_factory = sqlite3.Row
     try:

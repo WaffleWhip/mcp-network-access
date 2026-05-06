@@ -5,10 +5,10 @@ description: Manage OLTs via telnet. Individual tools for easy enable/disable.
 
 # OLT Skill
 
-## Tools (14 total)
+## Tools (13 total)
 
 ```
-telnet_create, telnet_send, telnet_wait, telnet_status, telnet_buttons
+telnet_create, telnet_send, telnet_status, telnet_buttons
 command_list, command_save, command_update, command_delete
 inventory_list, inventory_save, inventory_update, inventory_delete
 ```
@@ -27,7 +27,7 @@ telnet_create(host="10.0.0.1")
 ## telnet_send
 
 ```python
-# Single command
+# Send command (returns "sent" only, use telnet_status for output)
 telnet_send(host="10.0.0.1", value="show version")
 
 # Login
@@ -38,10 +38,10 @@ telnet_send(host="10.0.0.1", value="cmd1,cmd2,cmd3")
 
 # Button press
 telnet_send(host="10.0.0.1", value="(SPACE)")
-telnet_send(host="10.0.0.1", value="(Q)")
+telnet_send(host="10.0.0.1", value="(QUIT)")
 
 # Quit pagination early
-telnet_send(host="10.0.0.1", value="show running-config,(Q)")
+telnet_send(host="10.0.0.1", value="show running-config,(QUIT)")
 
 # ❌ SALAH
 telnet_send(host="10.0.0.1", value="show version\n")    # extra \n
@@ -49,22 +49,31 @@ telnet_send(host="10.0.0.1", value="admin, password")    # space after comma
 telnet_send(host="10.0.0.1", value="( space )")          # wrong parens
 ```
 
----
-
-## telnet_wait
-
-```python
-# Set wait time (default 1.0s)
-telnet_wait(host="10.0.0.1", seconds=1.0)
-```
+**Note:** telnet_send returns "sent" only. Use telnet_status to get output.
 
 ---
 
 ## telnet_status
 
 ```python
-# Check session state
+# Full session output
 telnet_status(host="10.0.0.1")
+
+# Last 10 lines only
+telnet_status(host="10.0.0.1", last_n=10)
+```
+
+**Returns:**
+```python
+{
+    "connected": True,
+    "host": "10.0.0.1",
+    "last_cmd": "show version",
+    "last_output": ["Version: ABC", "Model: XYZ", "#"],
+    "lines": ["all", "session", "lines"],
+    "total_cmds": 5,
+    "session_file": "storage/telnet/10.0.0.1.jsonl"
+}
 ```
 
 ---
@@ -188,24 +197,27 @@ inventory_delete(host="10.0.0.1")
 ```python
 # ✅ BENAR
 telnet_send(host="10.0.0.1", value="(SPACE)")   # page down
-telnet_send(host="10.0.0.1", value="(Q)")        # quit
+telnet_send(host="10.0.0.1", value="(QUIT)")    # quit
 telnet_send(host="10.0.0.1", value="(ENTER)")    # newline
 telnet_send(host="10.0.0.1", value="(TAB)")      # autocomplete
 
 # ❌ SALAH
-telnet_send(host="10.0.0.1", value="(entr)")    # wrong
-telnet_send(host="10.0.0.1", value="[SPACE]")  # wrong brackets
+telnet_send(host="10.0.0.1", value="(Q)")       # wrong - use QUIT
+telnet_send(host="10.0.0.1", value="[SPACE]")   # wrong brackets
 ```
 
 ---
 
-## Wait Time
+## Auto-Detection
 
-| OLT | Wait |
-|-----|------|
-| Fast | 0.5 - 1.0 |
-| Slow (ZTE C600) | 1.0 |
-| Default | 1.0 |
+System auto-detects command completion using output change detection:
+- Sends command
+- Waits for data to stop flowing (0.5s silence)
+- If output changed from previous AND silence detected → return immediately
+- If no change detected → continue until 10s global timeout
+- Global timeout 10s always returns output
+
+Use `telnet_status(host)` to check session state anytime.
 
 ---
 
@@ -225,5 +237,5 @@ Ask to do something on OLT
   │     ├─ YES → use hint
   │     └─ NO → explore with "?" → command_save(...)
   │
-  └─ telnet_send(value="hint")
+  └─ telnet_send(value="hint,(QUIT)")
 ```
