@@ -1,4 +1,4 @@
-"""OLT MCP - 3 Tools: telnet, command, inventory"""
+"""OLT MCP - Individual Tools: telnet_*, command_*, inventory_*"""
 
 import os, yaml
 from pathlib import Path
@@ -57,196 +57,208 @@ def release_host(host: str):
         HOST_LOCKS[host].release()
 
 
-# ============ TELNET ============
+# ============ TELNET TOOLS ============
 
 
 @mcp.tool()
-async def telnet(
-    action: str,
-    host: Optional[str] = None,
-    value: Optional[str] = None,
-    seconds: Optional[float] = None,
+async def telnet_create(
+    host: str,
     wait_for_previous: Optional[bool] = None,
 ) -> Any:
-    """Telnet tool with sub-commands: create, send, wait, status, buttons
-
-    - create: Create new session (host required)
-    - send: Send command(s) or buttons (host, value required)
-    - wait: Set wait time in seconds (host, seconds required)
-    - status: Check session status (host required)
-    - buttons: Show valid buttons (no params)
-    """
+    """Create new telnet session to OLT host."""
     if not hasattr(mcp, "_heartbeat_started"):
         asyncio.create_task(_heartbeat())
         mcp._heartbeat_started = True
 
+    await wait_for_host(host, wait_for_previous)
     try:
-        if action in ("create", "send"):
-            if not host:
-                return {"error": "host required"}
-            await wait_for_host(host, wait_for_previous)
-
-        if action == "create":
-            if not host:
-                return {"error": "host required for create"}
-            close_session(host)
-            result = await vt_connect(host)
-            return result
-
-        elif action == "send":
-            if not host or not value:
-                return {"error": "host and value required for send"}
-            if not is_logged_in(host):
-                await vt_connect(host)
-                await asyncio.sleep(0.2)
-
-            if "," in value:
-                cmds = [c.strip() for c in value.split(",") if c.strip()]
-                result, err = await send_command(host, commands=cmds)
-            else:
-                result, err = await send_command(host, command=value)
-
-            if err:
-                return {"error": err}
-            return result
-
-        elif action == "wait":
-            if not host or seconds is None:
-                return {"error": "host and seconds required for wait"}
-            return set_wait(host, seconds)
-
-        elif action == "status":
-            if not host:
-                return {"error": "host required for status"}
-            return get_status(host)
-
-        elif action == "buttons":
-            return load_buttons()
-
-        return {
-            "error": f"Unknown action: {action}. Valid: create, send, wait, status, buttons"
-        }
-
+        close_session(host)
+        result = await vt_connect(host)
+        return result
     finally:
-        if action in ("create", "send"):
-            release_host(host)
-
-
-# ============ COMMAND ============
+        release_host(host)
 
 
 @mcp.tool()
-def command(
-    action: str,
-    host: Optional[str] = None,
-    syntax: Optional[str] = None,
-    hint: Optional[str] = None,
-    description: Optional[str] = None,
+async def telnet_send(
+    host: str,
+    value: str,
     wait_for_previous: Optional[bool] = None,
 ) -> Any:
-    """Command knowledge base with actions: list, save, update, delete
+    """Send command(s) or buttons to OLT. Commands auto-enter, batch with comma."""
+    await wait_for_host(host, wait_for_previous)
+    try:
+        if not is_logged_in(host):
+            await vt_connect(host)
+            await asyncio.sleep(0.2)
 
-    - list: List commands (host required, syntax optional)
-    - save: Save new command (host, syntax, hint, description required)
-    - update: Update command (host, syntax required)
-    - delete: Delete command (host, syntax required)
-    """
-    if action == "list":
-        if not host:
-            return {"error": "host required"}
-        knowledge = list_knowledge(host)
-        if syntax:
-            found = [k for k in knowledge if k["syntax"] == syntax]
-            return found[0] if found else {"error": f"Command '{syntax}' not found"}
-        return ", ".join(k["syntax"] for k in knowledge) if knowledge else ""
+        if "," in value:
+            cmds = [c.strip() for c in value.split(",") if c.strip()]
+            result, err = await send_command(host, commands=cmds)
+        else:
+            result, err = await send_command(host, command=value)
 
-    elif action == "save":
-        if not host or not syntax or not hint or not description:
-            return {"error": "host, syntax, hint, description all required for save"}
-        hint_list = [h.strip() for h in hint.split(",") if h.strip()]
-        return edit_knowledge("save", host, syntax, hint_list, description)
-
-    elif action == "update":
-        if not host or not syntax:
-            return {"error": "host and syntax required for update"}
-        hint_list = [h.strip() for h in hint.split(",") if h.strip()] if hint else None
-        return edit_knowledge("update", host, syntax, hint_list, description or "")
-
-    elif action == "delete":
-        if not host or not syntax:
-            return {"error": "host and syntax required for delete"}
-        return edit_knowledge("delete", host, syntax)
-
-    return {"error": f"Unknown action: {action}. Valid: list, save, update, delete"}
-
-
-# ============ INVENTORY ============
+        if err:
+            return {"error": err}
+        return result
+    finally:
+        release_host(host)
 
 
 @mcp.tool()
-def inventory(
-    action: str,
+def telnet_wait(
+    host: str,
+    seconds: float,
+) -> Any:
+    """Set default wait time in seconds for session."""
+    return set_wait(host, seconds)
+
+
+@mcp.tool()
+def telnet_status(
+    host: str,
+) -> Any:
+    """Check current telnet session status."""
+    return get_status(host)
+
+
+@mcp.tool()
+def telnet_buttons() -> Any:
+    """List all available buttons."""
+    return load_buttons()
+
+
+# ============ COMMAND TOOLS ============
+
+
+@mcp.tool()
+def command_list(
+    host: str,
+    syntax: Optional[str] = None,
+) -> Any:
+    """List commands from knowledge base. host required, syntax optional."""
+    if not host:
+        return {"error": "host required"}
+    knowledge = list_knowledge(host)
+    if syntax:
+        found = [k for k in knowledge if k["syntax"] == syntax]
+        return found[0] if found else {"error": f"Command '{syntax}' not found"}
+    return ", ".join(k["syntax"] for k in knowledge) if knowledge else ""
+
+
+@mcp.tool()
+def command_save(
+    host: str,
+    syntax: str,
+    hint: str,
+    description: str,
+) -> Any:
+    """Save new command to knowledge base. ALL fields required."""
+    if not host or not syntax or not hint or not description:
+        return {"error": "host, syntax, hint, description all required"}
+    hint_list = [h.strip() for h in hint.split(",") if h.strip()]
+    return edit_knowledge("save", host, syntax, hint_list, description)
+
+
+@mcp.tool()
+def command_update(
+    host: str,
+    syntax: str,
+    hint: Optional[str] = None,
+    description: Optional[str] = None,
+) -> Any:
+    """Update existing command. host and syntax required."""
+    if not host or not syntax:
+        return {"error": "host and syntax required"}
+    hint_list = [h.strip() for h in hint.split(",") if h.strip()] if hint else None
+    return edit_knowledge("update", host, syntax, hint_list, description or "")
+
+
+@mcp.tool()
+def command_delete(
+    host: str,
+    syntax: str,
+) -> Any:
+    """Delete command from knowledge base. host and syntax required."""
+    if not host or not syntax:
+        return {"error": "host and syntax required"}
+    return edit_knowledge("delete", host, syntax)
+
+
+# ============ INVENTORY TOOLS ============
+
+
+@mcp.tool()
+def inventory_list(
     name: Optional[str] = None,
+) -> Any:
+    """List OLT inventory. name optional."""
+    inventory = list_inventory()
+    if name:
+        found = [i for i in inventory if i["name"] == name]
+        return found[0] if found else {"error": f"OLT '{name}' not found"}
+    return ", ".join(item["name"] for item in inventory) if inventory else ""
+
+
+@mcp.tool()
+def inventory_save(
+    name: str,
+    host: str,
+    user: str,
+    password: str,
+    vendor: str,
+    model: str,
+) -> Any:
+    """Add new OLT to inventory. ALL fields required."""
+    if not name or not host or not user or not password or not vendor or not model:
+        return {"error": "name, host, user, password, vendor, model all required"}
+    return edit_inventory(
+        "save",
+        {
+            "name": name,
+            "host": host,
+            "user": user,
+            "password": password,
+            "vendor": vendor,
+            "model": model,
+        },
+    )
+
+
+@mcp.tool()
+def inventory_update(
+    name: str,
     host: Optional[str] = None,
     user: Optional[str] = None,
     password: Optional[str] = None,
     vendor: Optional[str] = None,
     model: Optional[str] = None,
-    wait_for_previous: Optional[bool] = None,
 ) -> Any:
-    """Inventory with actions: list, save, update, delete
+    """Update existing OLT. name required, others optional."""
+    if not name:
+        return {"error": "name required"}
+    data = {"name": name}
+    if host:
+        data["host"] = host
+    if user:
+        data["user"] = user
+    if password:
+        data["password"] = password
+    if vendor:
+        data["vendor"] = vendor
+    if model:
+        data["model"] = model
+    return edit_inventory("update", data)
 
-    - list: List OLTs (name optional)
-    - save: Add new OLT (all fields required)
-    - update: Update OLT (name required)
-    - delete: Delete OLT (host required)
-    """
-    if action == "list":
-        inventory = list_inventory()
-        if name:
-            found = [i for i in inventory if i["name"] == name]
-            return found[0] if found else {"error": f"OLT '{name}' not found"}
-        return ", ".join(item["name"] for item in inventory) if inventory else ""
 
-    elif action == "save":
-        if not name or not host or not user or not password or not vendor or not model:
-            return {
-                "error": "name, host, user, password, vendor, model all required for save"
-            }
-        return edit_inventory(
-            "save",
-            {
-                "name": name,
-                "host": host,
-                "user": user,
-                "password": password,
-                "vendor": vendor,
-                "model": model,
-            },
-        )
-
-    elif action == "update":
-        if not name:
-            return {"error": "name required for update"}
-        data = {"name": name}
-        if host:
-            data["host"] = host
-        if user:
-            data["user"] = user
-        if password:
-            data["password"] = password
-        if vendor:
-            data["vendor"] = vendor
-        if model:
-            data["model"] = model
-        return edit_inventory("update", data)
-
-    elif action == "delete":
-        if not host:
-            return {"error": "host required for delete"}
-        return edit_inventory("delete", {"host": host})
-
-    return {"error": f"Unknown action: {action}. Valid: list, save, update, delete"}
+@mcp.tool()
+def inventory_delete(
+    host: str,
+) -> Any:
+    """Delete OLT from inventory. host required."""
+    if not host:
+        return {"error": "host required"}
+    return edit_inventory("delete", {"host": host})
 
 
 if __name__ == "__main__":
